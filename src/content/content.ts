@@ -1142,6 +1142,18 @@ export class ContentHandler {
   }
 
   onKeyUp(event: KeyboardEvent) {
+    // Mirror the modifier-cache update from `onKeyDown` so that releasing a
+    // modifier before the deferred `commitPopup` timeout fires updates the
+    // cached state used by the auto-speak gating check.
+    this.#lastPointerModifiers = {
+      alt:
+        event.altKey ||
+        (typeof event.getModifierState === 'function' &&
+          event.getModifierState('AltGraph')),
+      ctrl: event.ctrlKey,
+      shift: event.shiftKey,
+    };
+
     // If we are showing a popup that required certain hold keys, check if they
     // are now no longer held, and, if they are not, trigger an update of the
     // popup where we mark it as interactive
