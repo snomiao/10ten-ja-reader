@@ -1009,19 +1009,25 @@ export class ContentHandler {
       shift: event.shiftKey,
     };
 
+    const textBoxInFocus =
+      document.activeElement && isEditableNode(document.activeElement);
+
     // If auto-speak is enabled and the user just pressed one of the configured
     // gating modifier keys while a popup is already visible, speak now.
+    //
+    // We gate this on `!textBoxInFocus` and `!this.#typingMode` so that
+    // pressing Shift while typing in an editable element does not unexpectedly
+    // start TTS.
     if (
       this.#config.autoSpeak &&
       this.#currentSearchResult &&
       this.#config.autoSpeakModKeys.length &&
+      !textBoxInFocus &&
+      !this.#typingMode &&
       ['Alt', 'AltGraph', 'Control', 'Shift'].includes(event.key)
     ) {
       this.speakCurrentReading();
     }
-
-    const textBoxInFocus =
-      document.activeElement && isEditableNode(document.activeElement);
 
     // If the user pressed the hold-to-show key combination, show the popup
     // if possible.
