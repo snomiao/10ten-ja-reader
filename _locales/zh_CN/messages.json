@@ -1363,6 +1363,38 @@
     "message": "无",
     "description": "Label for not showing pitch accent information"
   },
+  "options_audio_heading": {
+    "message": "语音",
+    "description": "Heading for the audio / speech settings section"
+  },
+  "options_auto_speak": {
+    "message": "悬停时朗读",
+    "description": "Label for the checkbox enabling automatic text-to-speech when the popup is shown on hover"
+  },
+  "options_auto_speak_engine_browser": {
+    "message": "浏览器内置",
+    "description": "Speech engine option using the browser's built-in Web Speech API"
+  },
+  "options_auto_speak_engine_label": {
+    "message": "语音引擎",
+    "description": "Label for the dropdown selecting the speech engine"
+  },
+  "options_auto_speak_mod_keys_label": {
+    "message": "仅在按住时（留空则始终启用）",
+    "description": "Label for the modifier-key checkboxes that gate auto-speak on hover"
+  },
+  "options_auto_speak_source_label": {
+    "message": "朗读内容",
+    "description": "Label for the dropdown selecting which text to read aloud"
+  },
+  "options_auto_speak_source_matched": {
+    "message": "悬停的文字（含变形）",
+    "description": "Option to read the text matched on the page including any inflection"
+  },
+  "options_auto_speak_source_reading": {
+    "message": "词典读音",
+    "description": "Option to read the dictionary headword reading"
+  },
   "options_browser_commands_no_toggle_key": {
     "message": "由于您使用的浏览器的限制，您无法在此处更改此快捷键。",
     "description": "Descriptive text used for other browsers which do not permit configuring extension keys from the extension itself."
