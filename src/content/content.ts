@@ -250,6 +250,7 @@ export class ContentHandler {
   // Auto-speak: track the most recently spoken reading so we don't repeat the
   // same utterance every time the popup re-renders for the same word.
   #lastSpokenReading: string | undefined;
+  #activeUtterance: SpeechSynthesisUtterance | undefined;
 
   // Copy support
   //
@@ -2658,23 +2659,35 @@ export class ContentHandler {
       this.#config.autoSpeakSource === 'reading'
         ? reading || matchedSurface
         : matchedSurface || reading;
-    this.speakText(spoken);
+    this.speakText(spoken, { dedupe: true });
   }
 
-  speakText(text: string | undefined) {
+  speakText(
+    text: string | undefined,
+    { dedupe = false }: { dedupe?: boolean } = {}
+  ) {
     if (
       !text ||
-      text === this.#lastSpokenReading ||
+      (dedupe && text === this.#lastSpokenReading) ||
       typeof window === 'undefined' ||
       typeof window.speechSynthesis === 'undefined'
     ) {
       return;
     }
 
-    this.#lastSpokenReading = text;
+    if (dedupe) {
+      this.#lastSpokenReading = text;
+    } else {
+      // Allow re-speaking the same text on explicit user actions.
+      this.#lastSpokenReading = undefined;
+    }
 
     try {
-      window.speechSynthesis.cancel();
+      // Only cancel speech we ourselves started, so we don't interrupt
+      // unrelated speech initiated by the host page.
+      if (this.#activeUtterance) {
+        window.speechSynthesis.cancel();
+      }
       const utterance = new SpeechSynthesisUtterance(text);
       utterance.lang = 'ja-JP';
       const jaVoice = window.speechSynthesis
@@ -2683,14 +2696,31 @@ export class ContentHandler {
       if (jaVoice) {
         utterance.voice = jaVoice;
       }
+      const clearActive = () => {
+        if (this.#activeUtterance === utterance) {
+          this.#activeUtterance = undefined;
+        }
+      };
+      utterance.addEventListener('end', clearActive);
+      utterance.addEventListener('error', clearActive);
+      this.#activeUtterance = utterance;
       window.speechSynthesis.speak(utterance);
     } catch {
       // Speech synthesis is best-effort; ignore failures.
     }
   }
 
-  onDblClick(_event: MouseEvent) {
+  onDblClick(event: MouseEvent) {
     if (!this.#config.autoSpeak) {
+      return;
+    }
+    // Don't interfere with editable / interactive elements (e.g.
+    // contenteditable editors, form fields).
+    const target = event.target;
+    if (
+      target instanceof Node &&
+      (isEditableNode(target) || isInteractiveElement(target))
+    ) {
       return;
     }
     const selection = window.getSelection()?.toString().trim();
