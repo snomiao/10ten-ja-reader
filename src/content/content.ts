@@ -58,6 +58,7 @@ import type {
 import type { CopyType } from '../common/copy-keys';
 import { CopyKeys } from '../common/copy-keys';
 import { MAX_LOOKUP_LENGTH } from '../common/limits';
+import { japaneseChar } from '../utils/char-range';
 import { isEditableNode, isInteractiveElement } from '../utils/dom-utils';
 import type { MarginBox, Point, Rect } from '../utils/geometry';
 import {
@@ -175,6 +176,7 @@ export class ContentHandler {
   // that we can popup the window later using its properties.
   #lastPointerTarget: Element | null = null;
   #lastPointerMoveScreenPoint = { x: -1, y: -1 };
+  #lastPointerModifiers = { alt: false, ctrl: false, shift: false };
 
   // Safari-only redundant pointermove/mousemove event handling
   //
@@ -245,6 +247,10 @@ export class ContentHandler {
   #currentTargetProps: TargetProps | undefined;
   #currentDict: MajorDataSeries = 'words';
 
+  // Auto-speak: track the most recently spoken reading so we don't repeat the
+  // same utterance every time the popup re-renders for the same word.
+  #lastSpokenReading: string | undefined;
+
   // Copy support
   //
   // (copyMode is actually used by the text-handling window too to know which
@@ -275,6 +281,7 @@ export class ContentHandler {
     this.onFullScreenChange = this.onFullScreenChange.bind(this);
     this.onInterFrameMessage = this.onInterFrameMessage.bind(this);
     this.onBackgroundMessage = this.onBackgroundMessage.bind(this);
+    this.onDblClick = this.onDblClick.bind(this);
 
     this.onConfigChange = this.onConfigChange.bind(this);
     this.#config.addListener(this.onConfigChange);
@@ -283,6 +290,7 @@ export class ContentHandler {
       capture: true,
     });
     window.addEventListener('mousedown', this.onMouseDown);
+    window.addEventListener('dblclick', this.onDblClick);
     window.addEventListener('keydown', this.onKeyDown, { capture: true });
     window.addEventListener('keyup', this.onKeyUp, { capture: true });
     window.addEventListener('focusin', this.onFocusIn);
@@ -514,6 +522,7 @@ export class ContentHandler {
       capture: true,
     });
     window.removeEventListener('mousedown', this.onMouseDown);
+    window.removeEventListener('dblclick', this.onDblClick);
     window.removeEventListener('keydown', this.onKeyDown, { capture: true });
     window.removeEventListener('keyup', this.onKeyUp, { capture: true });
     window.removeEventListener('focusin', this.onFocusIn);
@@ -639,6 +648,14 @@ export class ContentHandler {
       this.#ignoreNextPointerMove = false;
     }
     this.#lastPointerMoveScreenPoint = { x: event.clientX, y: event.clientY };
+    this.#lastPointerModifiers = {
+      alt:
+        event.altKey ||
+        (typeof event.getModifierState === 'function' &&
+          event.getModifierState('AltGraph')),
+      ctrl: event.ctrlKey,
+      shift: event.shiftKey,
+    };
 
     // If we start moving the mouse, we should stop trying to recognize a tap on
     // the "pin" key as such since it's no longer a tap (and very often these
@@ -980,6 +997,29 @@ export class ContentHandler {
   }
 
   onKeyDown(event: KeyboardEvent) {
+    // Update the cached modifier state from this event so that auto-speak can
+    // react to a modifier press while the popup is already showing (without
+    // requiring the mouse to move first).
+    this.#lastPointerModifiers = {
+      alt:
+        event.altKey ||
+        (typeof event.getModifierState === 'function' &&
+          event.getModifierState('AltGraph')),
+      ctrl: event.ctrlKey,
+      shift: event.shiftKey,
+    };
+
+    // If auto-speak is enabled and the user just pressed one of the configured
+    // gating modifier keys while a popup is already visible, speak now.
+    if (
+      this.#config.autoSpeak &&
+      this.#currentSearchResult &&
+      this.#config.autoSpeakModKeys.length &&
+      ['Alt', 'AltGraph', 'Control', 'Shift'].includes(event.key)
+    ) {
+      this.speakCurrentReading();
+    }
+
     const textBoxInFocus =
       document.activeElement && isEditableNode(document.activeElement);
 
@@ -2578,6 +2618,81 @@ export class ContentHandler {
       displayMode: 'hover',
       fixPosition: false,
     });
+
+    if (this.#config.autoSpeak) {
+      this.speakCurrentReading();
+    }
+  }
+
+  speakCurrentReading() {
+    // Gate on configured modifier keys (if any). We check the latest known
+    // pointer modifier state since `commitPopup` is fired from a timeout, not
+    // directly from a key/pointer event.
+    const requiredMods = this.#config.autoSpeakModKeys;
+    if (requiredMods.length) {
+      const mods = this.#lastPointerModifiers;
+      if (requiredMods.includes('Alt') && !mods.alt) {
+        return;
+      }
+      if (requiredMods.includes('Ctrl') && !mods.ctrl) {
+        return;
+      }
+      if (requiredMods.includes('Shift') && !mods.shift) {
+        return;
+      }
+    }
+
+    const firstWord = this.#currentSearchResult?.words?.data[0];
+    const lookupText = this.#currentLookupParams?.text;
+    const matchLen = firstWord?.matchLen;
+    const matchedSurface =
+      lookupText && matchLen ? lookupText.slice(0, matchLen) : undefined;
+    const reading = firstWord?.r[0]?.ent;
+    const spoken =
+      this.#config.autoSpeakSource === 'reading'
+        ? reading || matchedSurface
+        : matchedSurface || reading;
+    this.speakText(spoken);
+  }
+
+  speakText(text: string | undefined) {
+    if (
+      !text ||
+      text === this.#lastSpokenReading ||
+      typeof window === 'undefined' ||
+      typeof window.speechSynthesis === 'undefined'
+    ) {
+      return;
+    }
+
+    this.#lastSpokenReading = text;
+
+    try {
+      window.speechSynthesis.cancel();
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.lang = 'ja-JP';
+      const jaVoice = window.speechSynthesis
+        .getVoices()
+        .find((v) => v.lang === 'ja-JP' || v.lang.startsWith('ja'));
+      if (jaVoice) {
+        utterance.voice = jaVoice;
+      }
+      window.speechSynthesis.speak(utterance);
+    } catch {
+      // Speech synthesis is best-effort; ignore failures.
+    }
+  }
+
+  onDblClick(_event: MouseEvent) {
+    if (!this.#config.autoSpeak) {
+      return;
+    }
+    const selection = window.getSelection()?.toString().trim();
+    // Only speak when the selection contains Japanese — otherwise the ja voice
+    // mangles English/other-language selections.
+    if (selection && japaneseChar.test(selection)) {
+      this.speakText(selection);
+    }
   }
 
   hidePopup() {
@@ -2586,6 +2701,12 @@ export class ContentHandler {
     this.#currentLookupParams = undefined;
     this.#currentSearchResult = undefined;
     this.#currentTargetProps = undefined;
+    this.#lastSpokenReading = undefined;
+
+    // Note: we deliberately do NOT cancel any in-flight speechSynthesis here.
+    // `speakText` already cancels before starting a new utterance, and we want
+    // double-click sentence reading to keep playing even if the user moves the
+    // mouse and the popup gets dismissed.
 
     hidePopup();
 

@@ -55,6 +55,23 @@ export interface ContentConfigParams {
   // Indicates the type of display to use for showing pitch accent information.
   accentDisplay: AccentDisplay;
 
+  // True if the popup's reading should be read aloud automatically when the
+  // popup is shown on hover.
+  autoSpeak: boolean;
+
+  // Which text to speak when auto-speak is enabled.
+  // 'matched': the text actually matched on the page (including any inflection)
+  // 'reading': the dictionary headword reading
+  autoSpeakSource: 'matched' | 'reading';
+
+  // Which speech engine to use. Currently only the browser-built-in Web Speech
+  // API is supported but kept as an enum for future expansion.
+  autoSpeakEngine: 'browser';
+
+  // Modifier keys which must be held down for auto-speak to fire on hover.
+  // An empty array means no modifier is required.
+  autoSpeakModKeys: Array<'Alt' | 'Ctrl' | 'Shift'>;
+
   // Which sections should have their entries expanded automatically rather than
   // being collapsed to show only the top entries.
   autoExpand: Array<AutoExpandableEntry>;

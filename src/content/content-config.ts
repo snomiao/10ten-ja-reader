@@ -189,6 +189,18 @@ export class ContentConfig implements ContentConfigParams {
   set readingOnly(value: boolean) {
     this.#params.readingOnly = value;
   }
+  get autoSpeak() {
+    return this.#params.autoSpeak;
+  }
+  get autoSpeakSource() {
+    return this.#params.autoSpeakSource;
+  }
+  get autoSpeakEngine() {
+    return this.#params.autoSpeakEngine;
+  }
+  get autoSpeakModKeys() {
+    return this.#params.autoSpeakModKeys;
+  }
   get showKanjiComponents() {
     return this.#params.showKanjiComponents;
   }

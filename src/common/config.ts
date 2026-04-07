@@ -57,6 +57,10 @@ type KanjiReferenceFlagsV2 = { [key in ReferenceAbbreviation]?: boolean };
 interface Settings {
   accentDisplay?: AccentDisplay;
   autoExpand?: Array<AutoExpandableEntry>;
+  autoSpeak?: boolean;
+  autoSpeakSource?: 'matched' | 'reading';
+  autoSpeakEngine?: 'browser';
+  autoSpeakModKeys?: string;
   bunproDisplay?: boolean;
   contextMenuEnable?: boolean;
   copyHeadwords?: 'common' | 'regular';
@@ -1174,6 +1178,78 @@ export class Config {
     this.readingOnly = !this.#settings.readingOnly;
   }
 
+  // autoSpeak: Defaults to true
+
+  get autoSpeak(): boolean {
+    return typeof this.#settings.autoSpeak === 'undefined'
+      ? true
+      : this.#settings.autoSpeak;
+  }
+
+  set autoSpeak(value: boolean) {
+    if (
+      typeof this.#settings.autoSpeak !== 'undefined' &&
+      this.#settings.autoSpeak === value
+    ) {
+      return;
+    }
+
+    this.#settings.autoSpeak = value;
+    void browser.storage.sync.set({ autoSpeak: value });
+  }
+
+  // autoSpeakSource: Defaults to 'matched'
+
+  get autoSpeakSource(): 'matched' | 'reading' {
+    return this.#settings.autoSpeakSource || 'matched';
+  }
+
+  set autoSpeakSource(value: 'matched' | 'reading') {
+    if (this.#settings.autoSpeakSource === value) {
+      return;
+    }
+    this.#settings.autoSpeakSource = value;
+    void browser.storage.sync.set({ autoSpeakSource: value });
+  }
+
+  // autoSpeakEngine: Defaults to 'browser'
+
+  get autoSpeakEngine(): 'browser' {
+    return this.#settings.autoSpeakEngine || 'browser';
+  }
+
+  set autoSpeakEngine(value: 'browser') {
+    if (this.#settings.autoSpeakEngine === value) {
+      return;
+    }
+    this.#settings.autoSpeakEngine = value;
+    void browser.storage.sync.set({ autoSpeakEngine: value });
+  }
+
+  // autoSpeakModKeys: Defaults to ['Shift']. The empty string is stored
+  // explicitly when the user wants no modifier required, so we distinguish
+  // 'undefined' (use default) from '' (user opted into no modifier).
+
+  get autoSpeakModKeys(): Array<'Alt' | 'Ctrl' | 'Shift'> {
+    const stored = this.#settings.autoSpeakModKeys;
+    if (typeof stored === 'undefined') {
+      return ['Shift'];
+    }
+    if (!stored) {
+      return [];
+    }
+    return stored.split('+') as Array<'Alt' | 'Ctrl' | 'Shift'>;
+  }
+
+  set autoSpeakModKeys(value: Array<'Alt' | 'Ctrl' | 'Shift'>) {
+    const stored = value.join('+');
+    if (this.#settings.autoSpeakModKeys === stored) {
+      return;
+    }
+    this.#settings.autoSpeakModKeys = stored;
+    void browser.storage.sync.set({ autoSpeakModKeys: stored });
+  }
+
   // showKanjiComponents: Defaults to true
 
   get showKanjiComponents(): boolean {
@@ -1393,6 +1469,10 @@ export class Config {
       preferredUnits: this.preferredUnits,
       puckState: this.puckState,
       readingOnly: this.readingOnly,
+      autoSpeak: this.autoSpeak,
+      autoSpeakSource: this.autoSpeakSource,
+      autoSpeakEngine: this.autoSpeakEngine,
+      autoSpeakModKeys: this.autoSpeakModKeys,
       showKanjiComponents: this.showKanjiComponents,
       showPriority: this.showPriority,
       showPuck: this.showPuck,

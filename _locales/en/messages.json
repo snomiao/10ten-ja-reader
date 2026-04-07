@@ -1367,6 +1367,38 @@
     "message": "None",
     "description": "Label for not showing pitch accent information"
   },
+  "options_audio_heading": {
+    "message": "Audio",
+    "description": "Heading for the audio / speech settings section"
+  },
+  "options_auto_speak": {
+    "message": "Read aloud on hover",
+    "description": "Label for the checkbox enabling automatic text-to-speech when the popup is shown on hover"
+  },
+  "options_auto_speak_engine_browser": {
+    "message": "Browser built-in",
+    "description": "Speech engine option using the browser's built-in Web Speech API"
+  },
+  "options_auto_speak_engine_label": {
+    "message": "Speech engine",
+    "description": "Label for the dropdown selecting the speech engine"
+  },
+  "options_auto_speak_mod_keys_label": {
+    "message": "Only when holding (leave empty for always)",
+    "description": "Label for the modifier-key checkboxes that gate auto-speak on hover"
+  },
+  "options_auto_speak_source_label": {
+    "message": "Read",
+    "description": "Label for the dropdown selecting which text to read aloud"
+  },
+  "options_auto_speak_source_matched": {
+    "message": "Hovered text (with inflection)",
+    "description": "Option to read the text matched on the page including any inflection"
+  },
+  "options_auto_speak_source_reading": {
+    "message": "Dictionary reading",
+    "description": "Option to read the dictionary headword reading"
+  },
   "options_browser_commands_no_toggle_key": {
     "message": "This shortcut key cannot be configured in this browser.",
     "description": "Descriptive text used for other browsers which do not permit configuring extension keys from the extension itself."
