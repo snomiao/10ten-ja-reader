@@ -88,6 +88,7 @@ export function AudioSettings(props: Props) {
   const [testStatus, setTestStatus] = useState<'idle' | 'playing' | 'error'>(
     'idle'
   );
+  const [testError, setTestError] = useState('');
   const audioCtxRef = useRef<AudioContext | null>(null);
   const audioSourceRef = useRef<AudioBufferSourceNode | null>(null);
 
@@ -116,6 +117,7 @@ export function AudioSettings(props: Props) {
     }
 
     setTestStatus('playing');
+    setTestError('');
 
     if (p === 'browser') {
       // Browser TTS
@@ -124,6 +126,7 @@ export function AudioSettings(props: Props) {
         typeof window.speechSynthesis === 'undefined'
       ) {
         setTestStatus('error');
+        setTestError('speechSynthesis not available in this browser');
         return;
       }
       const utterance = new SpeechSynthesisUtterance(sampleText);
@@ -135,7 +138,10 @@ export function AudioSettings(props: Props) {
         utterance.voice = jaVoice;
       }
       utterance.addEventListener('end', () => setTestStatus('idle'));
-      utterance.addEventListener('error', () => setTestStatus('error'));
+      utterance.addEventListener('error', (e) => {
+        setTestStatus('error');
+        setTestError(e.error || 'Browser speech synthesis failed');
+      });
       window.speechSynthesis.speak(utterance);
     } else {
       // Cloud TTS via background worker
@@ -147,8 +153,10 @@ export function AudioSettings(props: Props) {
             engine,
           });
         if (!response || response.error) {
-          console.warn('[10ten] Test TTS error:', response?.error);
+          const msg = String(response?.error || 'Unknown error');
+          console.warn('[10ten] Test TTS error:', msg);
           setTestStatus('error');
+          setTestError(msg);
           return;
         }
         const audio = response.audio as string;
@@ -175,8 +183,10 @@ export function AudioSettings(props: Props) {
         audioSourceRef.current = source;
         source.start();
       } catch (e) {
-        console.warn('[10ten] Test TTS error:', e);
+        const msg = e instanceof Error ? e.message : String(e);
+        console.warn('[10ten] Test TTS error:', msg);
         setTestStatus('error');
+        setTestError(msg);
       }
     }
   }, [props.config, sampleText]);
@@ -300,6 +310,12 @@ export function AudioSettings(props: Props) {
                       : '▶ Test'}
                 </button>
               </div>
+              {testStatus === 'error' && testError && (
+                <>
+                  <div />
+                  <div class="text-sm text-red-600">{testError}</div>
+                </>
+              )}
             </>
           )}
 
@@ -331,6 +347,12 @@ export function AudioSettings(props: Props) {
                     ? '✗'
                     : '▶ Test'}
               </button>
+              {testStatus === 'error' && testError && (
+                <>
+                  <div />
+                  <div class="text-sm text-red-600">{testError}</div>
+                </>
+              )}
             </>
           )}
         </div>
