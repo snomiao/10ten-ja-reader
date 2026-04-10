@@ -2675,23 +2675,28 @@ export class ContentHandler {
     const scope = this.#config.autoSpeakScope;
     const sentence = scope !== 'word' ? this.getSentenceAtCursor() : null;
 
+    const wordEngine = this.#config.autoSpeakWordEngine;
+    const sentenceEngine = this.#config.autoSpeakSentenceEngine;
+
     if (scope === 'sentence') {
-      // Sentence only: speak the sentence, or fall back to the word.
-      this.speakText(sentence || wordToSpeak, { dedupe: true });
+      this.speakText(sentence || wordToSpeak, {
+        dedupe: true,
+        engine: sentenceEngine,
+      });
     } else if (
       scope === 'word+sentence' &&
       sentence &&
       wordToSpeak &&
       sentence !== wordToSpeak
     ) {
-      // Word + sentence: speak the word first, then the full sentence.
+      // Word first (instant, browser TTS), then sentence (possibly cloud).
       this.speakText(wordToSpeak, {
         dedupe: true,
-        onEnd: () => this.speakText(sentence),
+        engine: wordEngine,
+        onEnd: () => this.speakText(sentence, { engine: sentenceEngine }),
       });
     } else {
-      // Word only (or sentence same as word): just speak the word.
-      this.speakText(wordToSpeak, { dedupe: true });
+      this.speakText(wordToSpeak, { dedupe: true, engine: wordEngine });
     }
   }
 
@@ -2807,7 +2812,11 @@ export class ContentHandler {
 
   speakText(
     text: string | undefined,
-    { dedupe = false, onEnd }: { dedupe?: boolean; onEnd?: () => void } = {}
+    {
+      dedupe = false,
+      onEnd,
+      engine,
+    }: { dedupe?: boolean; onEnd?: () => void; engine?: string } = {}
   ) {
     if (!text || (dedupe && text === this.#lastSpokenReading)) {
       return;
@@ -2819,11 +2828,11 @@ export class ContentHandler {
       this.#lastSpokenReading = undefined;
     }
 
-    const engine = this.#config.autoSpeakEngine;
-    if (engine === 'browser') {
+    const resolvedEngine = engine || this.#config.autoSpeakWordEngine;
+    if (resolvedEngine === 'browser') {
       this.speakWithBrowser(text, onEnd);
     } else {
-      void this.speakWithCloud(text, engine, onEnd);
+      void this.speakWithCloud(text, resolvedEngine, onEnd);
     }
   }
 

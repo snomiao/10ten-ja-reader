@@ -195,8 +195,11 @@ export class ContentConfig implements ContentConfigParams {
   get autoSpeakSource() {
     return this.#params.autoSpeakSource;
   }
-  get autoSpeakEngine(): string {
-    return this.#params.autoSpeakEngine;
+  get autoSpeakWordEngine(): string {
+    return this.#params.autoSpeakWordEngine;
+  }
+  get autoSpeakSentenceEngine(): string {
+    return this.#params.autoSpeakSentenceEngine;
   }
   get autoSpeakScope() {
     return this.#params.autoSpeakScope;

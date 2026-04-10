@@ -227,7 +227,8 @@ describe('Config', () => {
     expect(config.toolbarIcon).toEqual('default');
     expect(config.autoSpeak).toEqual(true);
     expect(config.autoSpeakSource).toEqual('matched');
-    expect(config.autoSpeakEngine).toEqual('browser');
+    expect(config.autoSpeakWordEngine).toEqual('browser');
+    expect(config.autoSpeakSentenceEngine).toEqual('browser');
     expect(config.autoSpeakModKeys).toEqual(['Shift']);
   });
 

@@ -18,7 +18,14 @@ export function AudioSettings(props: Props) {
 
   const autoSpeak = useConfigValue(props.config, 'autoSpeak');
   const autoSpeakSource = useConfigValue(props.config, 'autoSpeakSource');
-  const autoSpeakEngine = useConfigValue(props.config, 'autoSpeakEngine');
+  const autoSpeakWordEngine = useConfigValue(
+    props.config,
+    'autoSpeakWordEngine'
+  );
+  const autoSpeakSentenceEngine = useConfigValue(
+    props.config,
+    'autoSpeakSentenceEngine'
+  );
   const autoSpeakScope = useConfigValue(props.config, 'autoSpeakScope');
   const autoSpeakModKeys = useConfigValue(props.config, 'autoSpeakModKeys');
 
@@ -46,9 +53,16 @@ export function AudioSettings(props: Props) {
     [props.config]
   );
 
-  const onChangeEngine = useCallback(
+  const onChangeWordEngine = useCallback(
     (value: string) => {
-      props.config.autoSpeakEngine = value;
+      props.config.autoSpeakWordEngine = value;
+    },
+    [props.config]
+  );
+
+  const onChangeSentenceEngine = useCallback(
+    (value: string) => {
+      props.config.autoSpeakSentenceEngine = value;
     },
     [props.config]
   );
@@ -95,7 +109,9 @@ export function AudioSettings(props: Props) {
 
   const startTimer = useCallback(() => {
     setTestElapsed(0);
-    if (timerRef.current) {clearInterval(timerRef.current);}
+    if (timerRef.current) {
+      clearInterval(timerRef.current);
+    }
     const start = Date.now();
     timerRef.current = setInterval(
       () => setTestElapsed(Math.floor((Date.now() - start) / 1000)),
@@ -111,7 +127,11 @@ export function AudioSettings(props: Props) {
   }, []);
 
   const onTestSpeak = useCallback(async () => {
-    const engine = props.config.autoSpeakEngine;
+    // Test with whichever engine is cloud-based; fall back to word engine.
+    const sentEng = props.config.autoSpeakSentenceEngine;
+    const wordEng = props.config.autoSpeakWordEngine;
+    const engine =
+      parseEngine(sentEng).provider !== 'browser' ? sentEng : wordEng;
     const { provider: p } = parseEngine(engine);
 
     // Stop any currently playing test
@@ -218,8 +238,10 @@ export function AudioSettings(props: Props) {
     }
   }, [props.config, sampleText]);
 
-  const { provider } = parseEngine(autoSpeakEngine);
-  const needsApiKey = provider !== 'browser';
+  const wordProvider = parseEngine(autoSpeakWordEngine).provider;
+  const sentenceProvider = parseEngine(autoSpeakSentenceEngine).provider;
+  const needsApiKey =
+    wordProvider !== 'browser' || sentenceProvider !== 'browser';
 
   return (
     <>
@@ -283,29 +305,47 @@ export function AudioSettings(props: Props) {
             </option>
           </select>
 
-          <label for="autoSpeakEngine">
-            {t('options_auto_speak_engine_label')}
+          <label for="autoSpeakWordEngine">
+            {t('options_auto_speak_word_engine_label')}
           </label>
           <div>
             <input
-              id="autoSpeakEngine"
-              name="autoSpeakEngine"
+              id="autoSpeakWordEngine"
+              name="autoSpeakWordEngine"
               type="text"
-              list="autoSpeakEnginePresets"
+              list="ttsPresets"
               disabled={!autoSpeak}
-              value={autoSpeakEngine}
-              onInput={(e) => onChangeEngine(e.currentTarget.value)}
+              value={autoSpeakWordEngine}
+              onInput={(e) => onChangeWordEngine(e.currentTarget.value)}
               class="w-full min-w-[320px] rounded border border-zinc-300 px-2 py-1 text-sm"
               placeholder="browser"
             />
-            <datalist id="autoSpeakEnginePresets">
-              {TTS_PRESETS.map((preset) => (
-                <option key={preset.value} value={preset.value}>
-                  {preset.label}
-                </option>
-              ))}
-            </datalist>
           </div>
+
+          <label for="autoSpeakSentenceEngine">
+            {t('options_auto_speak_sentence_engine_label')}
+          </label>
+          <div>
+            <input
+              id="autoSpeakSentenceEngine"
+              name="autoSpeakSentenceEngine"
+              type="text"
+              list="ttsPresets"
+              disabled={!autoSpeak}
+              value={autoSpeakSentenceEngine}
+              onInput={(e) => onChangeSentenceEngine(e.currentTarget.value)}
+              class="w-full min-w-[320px] rounded border border-zinc-300 px-2 py-1 text-sm"
+              placeholder="browser"
+            />
+          </div>
+
+          <datalist id="ttsPresets">
+            {TTS_PRESETS.map((preset) => (
+              <option key={preset.value} value={preset.value}>
+                {preset.label}
+              </option>
+            ))}
+          </datalist>
 
           {needsApiKey && (
             <>
@@ -321,7 +361,7 @@ export function AudioSettings(props: Props) {
                   value={apiKey}
                   onInput={(e) => onChangeApiKey(e.currentTarget.value)}
                   class="min-w-[240px] flex-1 rounded border border-zinc-300 px-2 py-1 text-sm"
-                  placeholder={`${provider} API key`}
+                  placeholder={`${wordProvider !== 'browser' ? wordProvider : sentenceProvider} API key`}
                   autocomplete="off"
                 />
                 <button
@@ -359,7 +399,7 @@ export function AudioSettings(props: Props) {
             class="w-full min-w-[320px] rounded border border-zinc-300 px-2 py-1 text-sm"
             placeholder="Sample text for testing..."
           />
-          {provider === 'browser' && (
+          {!needsApiKey && (
             <>
               <div />
               <button

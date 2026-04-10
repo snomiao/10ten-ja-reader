@@ -59,7 +59,8 @@ interface Settings {
   autoExpand?: Array<AutoExpandableEntry>;
   autoSpeak?: boolean;
   autoSpeakSource?: 'matched' | 'reading';
-  autoSpeakEngine?: string;
+  autoSpeakWordEngine?: string;
+  autoSpeakSentenceEngine?: string;
   autoSpeakScope?: 'word+sentence' | 'word' | 'sentence';
   autoSpeakModKeys?: string;
   bunproDisplay?: boolean;
@@ -1213,19 +1214,30 @@ export class Config {
     void browser.storage.sync.set({ autoSpeakSource: value });
   }
 
-  // autoSpeakEngine: Defaults to 'browser'.
-  // Format: 'browser' or 'provider/model/voice'.
+  // autoSpeakWordEngine / autoSpeakSentenceEngine: both default to 'browser'.
 
-  get autoSpeakEngine(): string {
-    return this.#settings.autoSpeakEngine || 'browser';
+  get autoSpeakWordEngine(): string {
+    return this.#settings.autoSpeakWordEngine || 'browser';
   }
 
-  set autoSpeakEngine(value: string) {
-    if (this.#settings.autoSpeakEngine === value) {
+  set autoSpeakWordEngine(value: string) {
+    if (this.#settings.autoSpeakWordEngine === value) {
       return;
     }
-    this.#settings.autoSpeakEngine = value;
-    void browser.storage.sync.set({ autoSpeakEngine: value });
+    this.#settings.autoSpeakWordEngine = value;
+    void browser.storage.sync.set({ autoSpeakWordEngine: value });
+  }
+
+  get autoSpeakSentenceEngine(): string {
+    return this.#settings.autoSpeakSentenceEngine || 'browser';
+  }
+
+  set autoSpeakSentenceEngine(value: string) {
+    if (this.#settings.autoSpeakSentenceEngine === value) {
+      return;
+    }
+    this.#settings.autoSpeakSentenceEngine = value;
+    void browser.storage.sync.set({ autoSpeakSentenceEngine: value });
   }
 
   // autoSpeakApiKey: stored in LOCAL storage only (never synced — keys must
@@ -1503,7 +1515,8 @@ export class Config {
       readingOnly: this.readingOnly,
       autoSpeak: this.autoSpeak,
       autoSpeakSource: this.autoSpeakSource,
-      autoSpeakEngine: this.autoSpeakEngine,
+      autoSpeakWordEngine: this.autoSpeakWordEngine,
+      autoSpeakSentenceEngine: this.autoSpeakSentenceEngine,
       autoSpeakModKeys: this.autoSpeakModKeys,
       autoSpeakScope: this.autoSpeakScope,
       showKanjiComponents: this.showKanjiComponents,

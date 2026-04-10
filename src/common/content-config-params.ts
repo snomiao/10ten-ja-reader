@@ -64,11 +64,12 @@ export interface ContentConfigParams {
   // 'reading': the dictionary headword reading
   autoSpeakSource: 'matched' | 'reading';
 
-  // Which speech engine to use for auto-speak.
-  // Format: 'browser' for local Web Speech API, or 'provider/model/voice'
-  // for cloud TTS (e.g. 'gemini/gemini-2.5-flash-preview-tts/Kore',
-  // 'openai/gpt-4o-mini-tts/alloy', 'elevenlabs/eleven_multilingual_v2/Rachel').
-  autoSpeakEngine: string;
+  // Speech engines for word and sentence reading, configured separately so
+  // users can have instant local TTS for words + high-quality cloud TTS for
+  // sentences. Both default to 'browser'.
+  // Format: 'browser' or 'provider/model/voice'.
+  autoSpeakWordEngine: string;
+  autoSpeakSentenceEngine: string;
 
   // What to read aloud on hover:
   // 'word+sentence' (default): speak the word first, then the full sentence

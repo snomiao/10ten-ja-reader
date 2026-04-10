@@ -1411,6 +1411,10 @@
     "message": "Word, then sentence",
     "description": "Read the matched word first, then the full surrounding sentence"
   },
+  "options_auto_speak_sentence_engine_label": {
+    "message": "Sentence engine",
+    "description": "TTS engine for sentence reading (cloud TTS recommended for quality)"
+  },
   "options_auto_speak_source_label": {
     "message": "Read",
     "description": "Label for the dropdown selecting which text to read aloud"
@@ -1422,6 +1426,10 @@
   "options_auto_speak_source_reading": {
     "message": "Dictionary reading",
     "description": "Option to read the dictionary headword reading"
+  },
+  "options_auto_speak_word_engine_label": {
+    "message": "Word engine",
+    "description": "TTS engine for individual words (browser recommended for instant feedback)"
   },
   "options_browser_commands_no_toggle_key": {
     "message": "This shortcut key cannot be configured in this browser.",
