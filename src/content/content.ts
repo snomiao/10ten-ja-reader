@@ -2978,10 +2978,9 @@ export class ContentHandler {
     this.#currentTargetProps = undefined;
     this.#lastSpokenReading = undefined;
 
-    // Note: we deliberately do NOT cancel any in-flight speechSynthesis here.
-    // `speakText` already cancels before starting a new utterance, and we want
-    // double-click sentence reading to keep playing even if the user moves the
-    // mouse and the popup gets dismissed.
+    // Cancel any in-flight speech (word, sentence, or cloud TTS) so that
+    // moving the mouse away immediately silences the extension.
+    this.cancelAllSpeech();
 
     hidePopup();
 
