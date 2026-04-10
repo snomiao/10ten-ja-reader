@@ -2672,43 +2672,38 @@ export class ContentHandler {
         ? reading || matchedSurface
         : matchedSurface || reading;
 
-    // If the cursor is on (or very near) the first word of a sentence,
-    // speak the entire sentence instead of just the matched word.
-    const sentence = this.getSentenceAtCursor();
-    const spoken = sentence || wordToSpeak;
-    this.speakText(spoken, { dedupe: true });
+    const scope = this.#config.autoSpeakScope;
+    const sentence = scope !== 'word' ? this.getSentenceAtCursor() : null;
+
+    if (scope === 'sentence') {
+      // Sentence only: speak the sentence, or fall back to the word.
+      this.speakText(sentence || wordToSpeak, { dedupe: true });
+    } else if (
+      scope === 'word+sentence' &&
+      sentence &&
+      wordToSpeak &&
+      sentence !== wordToSpeak
+    ) {
+      // Word + sentence: speak the word first, then the full sentence.
+      this.speakText(wordToSpeak, {
+        dedupe: true,
+        onEnd: () => this.speakText(sentence),
+      });
+    } else {
+      // Word only (or sentence same as word): just speak the word.
+      this.speakText(wordToSpeak, { dedupe: true });
+    }
   }
 
   // ── Sentence extraction ──────────────────────────────────────────────────
-  //
-  // Walks the DOM around #currentTextRange to extract the full sentence
-  // (delimited by 。！？!?\n or block-element boundaries). Returns the
-  // sentence string only when the matched text sits at or very near the
-  // START of the sentence (≤ 3 chars from sentence-start, ignoring
-  // whitespace). Otherwise returns null so callers fall back to word-level
-  // speech.
 
   static readonly SENTENCE_END_CHARS = '。！？!?…';
   static readonly MAX_SENTENCE_LENGTH = 200;
 
-  // Returns the full sentence ending at the cursor's sentence-end mark
-  // (。！？!?…), or null if the cursor is NOT on such a mark.
-  //
-  // UX: hovering on 。 reads the whole sentence aloud; hovering anywhere
-  // else reads just the matched word (existing behaviour).
+  // Extract the sentence surrounding the hovered word. Walks backward to
+  // find the previous sentence-end mark (or block start), then forward to
+  // find the next sentence-end mark (or block end).
   getSentenceAtCursor(): string | null {
-    const lookupText = this.#currentLookupParams?.text;
-    if (!lookupText) {
-      return null;
-    }
-
-    // Only activate when the character under the cursor is a sentence-end
-    // punctuation mark.
-    const firstChar = lookupText[0];
-    if (!ContentHandler.SENTENCE_END_CHARS.includes(firstChar)) {
-      return null;
-    }
-
     const textRange = this.#currentTextRange;
     if (!textRange?.length) {
       return null;
@@ -2725,10 +2720,11 @@ export class ContentHandler {
     }
 
     const { fullText, matchOffset } = collected;
-
-    // Walk backward from the sentence-end mark to find the sentence start
-    // (the character after the previous sentence-end mark or block boundary).
     const endChars = ContentHandler.SENTENCE_END_CHARS;
+    const { MAX_SENTENCE_LENGTH } = ContentHandler;
+
+    // Find sentence start: walk backward from match to previous sentence-end
+    // or block boundary.
     let sentenceStart = 0;
     for (let i = matchOffset - 1; i >= 0; i--) {
       if (endChars.includes(fullText[i])) {
@@ -2737,40 +2733,41 @@ export class ContentHandler {
       }
     }
 
-    // Sentence ends at and includes the current sentence-end mark.
-    const sentenceEnd = matchOffset + 1;
+    // Find sentence end: walk forward from match to next sentence-end
+    // or block boundary.
+    let sentenceEnd = fullText.length;
+    for (let i = matchOffset; i < fullText.length; i++) {
+      if (endChars.includes(fullText[i])) {
+        sentenceEnd = i + 1; // include the punctuation
+        break;
+      }
+    }
 
     const sentence = fullText.substring(sentenceStart, sentenceEnd).trim();
 
-    if (!sentence || sentence.length <= 1) {
+    // Only return if the sentence is meaningfully longer than a single word.
+    if (!sentence || sentence.length <= 3) {
       return null;
     }
 
-    const { MAX_SENTENCE_LENGTH } = ContentHandler;
     return sentence.length > MAX_SENTENCE_LENGTH
       ? sentence.substring(0, MAX_SENTENCE_LENGTH)
       : sentence;
   }
 
-  // Walk sibling text nodes within the nearest block-level ancestor to
-  // build a continuous text string. Returns { fullText, matchOffset }
-  // where matchOffset is the position of `matchStart` within fullText.
   private collectInlineText(
     textNode: Node,
     matchStart: number
   ): { fullText: string; matchOffset: number } | null {
-    // Find the nearest block-level ancestor.
     let scope: Element | null = textNode.parentElement;
     while (scope && this.isInlineElement(scope) && scope.parentElement) {
       scope = scope.parentElement;
     }
     if (!scope) {
-      // Fallback: use just this text node.
       const data = (textNode as Text).data;
       return { fullText: data, matchOffset: matchStart };
     }
 
-    // Walk all text nodes inside the block scope, skipping <rt> and <rp>.
     const walker = document.createTreeWalker(scope, NodeFilter.SHOW_TEXT, {
       acceptNode(n: Node): number {
         const parent = n.parentElement;
@@ -2793,11 +2790,7 @@ export class ContentHandler {
       currentNode = walker.nextNode();
     }
 
-    if (matchOffset < 0) {
-      return null;
-    }
-
-    return { fullText, matchOffset };
+    return matchOffset >= 0 ? { fullText, matchOffset } : null;
   }
 
   private isInlineElement(el: Element): boolean {
@@ -2814,7 +2807,7 @@ export class ContentHandler {
 
   speakText(
     text: string | undefined,
-    { dedupe = false }: { dedupe?: boolean } = {}
+    { dedupe = false, onEnd }: { dedupe?: boolean; onEnd?: () => void } = {}
   ) {
     if (!text || (dedupe && text === this.#lastSpokenReading)) {
       return;
@@ -2828,13 +2821,13 @@ export class ContentHandler {
 
     const engine = this.#config.autoSpeakEngine;
     if (engine === 'browser') {
-      this.speakWithBrowser(text);
+      this.speakWithBrowser(text, onEnd);
     } else {
-      void this.speakWithCloud(text, engine);
+      void this.speakWithCloud(text, engine, onEnd);
     }
   }
 
-  private speakWithBrowser(text: string) {
+  private speakWithBrowser(text: string, onEnd?: () => void) {
     if (
       typeof window === 'undefined' ||
       typeof window.speechSynthesis === 'undefined'
@@ -2858,7 +2851,10 @@ export class ContentHandler {
           this.#activeUtterance = undefined;
         }
       };
-      utterance.addEventListener('end', clearActive);
+      utterance.addEventListener('end', () => {
+        clearActive();
+        onEnd?.();
+      });
       utterance.addEventListener('error', clearActive);
       this.#activeUtterance = utterance;
       window.speechSynthesis.speak(utterance);
@@ -2871,7 +2867,11 @@ export class ContentHandler {
   #audioContext: AudioContext | undefined;
   #activeAudioSource: AudioBufferSourceNode | undefined;
 
-  private async speakWithCloud(text: string, engine: string) {
+  private async speakWithCloud(
+    text: string,
+    engine: string,
+    onEnd?: () => void
+  ) {
     try {
       // Cancel any in-flight browser or cloud audio.
       this.cancelAllSpeech();
@@ -2913,6 +2913,7 @@ export class ContentHandler {
         if (this.#activeAudioSource === source) {
           this.#activeAudioSource = undefined;
         }
+        onEnd?.();
       };
       this.#activeAudioSource = source;
       source.start();

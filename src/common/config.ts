@@ -60,6 +60,7 @@ interface Settings {
   autoSpeak?: boolean;
   autoSpeakSource?: 'matched' | 'reading';
   autoSpeakEngine?: string;
+  autoSpeakScope?: 'word+sentence' | 'word' | 'sentence';
   autoSpeakModKeys?: string;
   bunproDisplay?: boolean;
   contextMenuEnable?: boolean;
@@ -1243,6 +1244,20 @@ export class Config {
     await browser.storage.local.set({ autoSpeakApiKey: value });
   }
 
+  // autoSpeakScope: Defaults to 'word+sentence'.
+
+  get autoSpeakScope(): 'word+sentence' | 'word' | 'sentence' {
+    return this.#settings.autoSpeakScope || 'word+sentence';
+  }
+
+  set autoSpeakScope(value: 'word+sentence' | 'word' | 'sentence') {
+    if (this.#settings.autoSpeakScope === value) {
+      return;
+    }
+    this.#settings.autoSpeakScope = value;
+    void browser.storage.sync.set({ autoSpeakScope: value });
+  }
+
   // autoSpeakModKeys: Defaults to ['Shift']. The empty string is stored
   // explicitly when the user wants no modifier required, so we distinguish
   // 'undefined' (use default) from '' (user opted into no modifier).
@@ -1490,6 +1505,7 @@ export class Config {
       autoSpeakSource: this.autoSpeakSource,
       autoSpeakEngine: this.autoSpeakEngine,
       autoSpeakModKeys: this.autoSpeakModKeys,
+      autoSpeakScope: this.autoSpeakScope,
       showKanjiComponents: this.showKanjiComponents,
       showPriority: this.showPriority,
       showPuck: this.showPuck,

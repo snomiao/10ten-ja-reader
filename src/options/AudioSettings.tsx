@@ -19,6 +19,7 @@ export function AudioSettings(props: Props) {
   const autoSpeak = useConfigValue(props.config, 'autoSpeak');
   const autoSpeakSource = useConfigValue(props.config, 'autoSpeakSource');
   const autoSpeakEngine = useConfigValue(props.config, 'autoSpeakEngine');
+  const autoSpeakScope = useConfigValue(props.config, 'autoSpeakScope');
   const autoSpeakModKeys = useConfigValue(props.config, 'autoSpeakModKeys');
 
   // API key is stored in local storage (async), not sync.
@@ -56,6 +57,13 @@ export function AudioSettings(props: Props) {
     (value: string) => {
       setApiKey(value);
       void props.config.setAutoSpeakApiKey(value);
+    },
+    [props.config]
+  );
+
+  const onChangeScope = useCallback(
+    (value: 'word+sentence' | 'word' | 'sentence') => {
+      props.config.autoSpeakScope = value;
     },
     [props.config]
   );
@@ -108,6 +116,33 @@ export function AudioSettings(props: Props) {
             </option>
             <option value="reading" selected={autoSpeakSource === 'reading'}>
               {t('options_auto_speak_source_reading')}
+            </option>
+          </select>
+
+          <label for="autoSpeakScope">
+            {t('options_auto_speak_scope_label')}
+          </label>
+          <select
+            id="autoSpeakScope"
+            name="autoSpeakScope"
+            disabled={!autoSpeak}
+            onChange={(e) =>
+              onChangeScope(
+                e.currentTarget.value as 'word+sentence' | 'word' | 'sentence'
+              )
+            }
+          >
+            <option
+              value="word+sentence"
+              selected={autoSpeakScope === 'word+sentence'}
+            >
+              {t('options_auto_speak_scope_word_sentence')}
+            </option>
+            <option value="word" selected={autoSpeakScope === 'word'}>
+              {t('options_auto_speak_scope_word')}
+            </option>
+            <option value="sentence" selected={autoSpeakScope === 'sentence'}>
+              {t('options_auto_speak_scope_sentence')}
             </option>
           </select>
 

@@ -70,6 +70,12 @@ export interface ContentConfigParams {
   // 'openai/gpt-4o-mini-tts/alloy', 'elevenlabs/eleven_multilingual_v2/Rachel').
   autoSpeakEngine: string;
 
+  // What to read aloud on hover:
+  // 'word+sentence' (default): speak the word first, then the full sentence
+  // 'word': speak only the matched word
+  // 'sentence': speak only the surrounding sentence
+  autoSpeakScope: 'word+sentence' | 'word' | 'sentence';
+
   // Modifier keys which must be held down for auto-speak to fire on hover.
   // An empty array means no modifier is required.
   autoSpeakModKeys: Array<'Alt' | 'Ctrl' | 'Shift'>;

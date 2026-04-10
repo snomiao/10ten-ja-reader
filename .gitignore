@@ -21,3 +21,11 @@ dist-src
 dist-thunderbird
 dist-thunderbird-package
 release-assets
+
+# Common ignores
+tmp/
+*.map
+dist-*
+*.env
+*.env.*
+!*.env.example
