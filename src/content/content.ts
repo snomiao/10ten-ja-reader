@@ -250,6 +250,7 @@ export class ContentHandler {
   // Auto-speak: track the most recently spoken reading so we don't repeat the
   // same utterance every time the popup re-renders for the same word.
   #lastSpokenReading: string | undefined;
+  #lastSpokenSentence: string | undefined;
   #activeUtterance: SpeechSynthesisUtterance | undefined;
 
   // Copy support
@@ -2678,22 +2679,35 @@ export class ContentHandler {
     const wordEngine = this.#config.autoSpeakWordEngine;
     const sentenceEngine = this.#config.autoSpeakSentenceEngine;
 
+    // Skip the sentence if we already spoke it (mouse sliding within the
+    // same sentence to a different word).
+    const sentenceAlreadySpoken =
+      sentence && sentence === this.#lastSpokenSentence;
+
     if (scope === 'sentence') {
-      this.speakText(sentence || wordToSpeak, {
-        dedupe: true,
-        engine: sentenceEngine,
-      });
+      if (!sentenceAlreadySpoken) {
+        this.#lastSpokenSentence = sentence || undefined;
+        this.speakText(sentence || wordToSpeak, {
+          dedupe: true,
+          engine: sentenceEngine,
+        });
+      }
     } else if (
       scope === 'word+sentence' &&
       sentence &&
       wordToSpeak &&
       sentence !== wordToSpeak
     ) {
-      // Word first (instant, browser TTS), then sentence (possibly cloud).
+      // Word first, then sentence (only if sentence hasn't been spoken yet).
       this.speakText(wordToSpeak, {
         dedupe: true,
         engine: wordEngine,
-        onEnd: () => this.speakText(sentence, { engine: sentenceEngine }),
+        onEnd: () => {
+          if (!sentenceAlreadySpoken) {
+            this.#lastSpokenSentence = sentence;
+            this.speakText(sentence, { engine: sentenceEngine });
+          }
+        },
       });
     } else {
       this.speakText(wordToSpeak, { dedupe: true, engine: wordEngine });
@@ -2986,6 +3000,7 @@ export class ContentHandler {
     this.#currentSearchResult = undefined;
     this.#currentTargetProps = undefined;
     this.#lastSpokenReading = undefined;
+    this.#lastSpokenSentence = undefined;
 
     // Cancel any in-flight speech (word, sentence, or cloud TTS) so that
     // moving the mouse away immediately silences the extension.
