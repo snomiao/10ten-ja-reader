@@ -143,8 +143,8 @@ export function AudioSettings(props: Props) {
       });
       window.speechSynthesis.speak(utterance);
     } else {
-      // Cloud TTS — call directly from the options page (no sendMessage
-      // to the background worker needed; options pages can fetch()).
+      // Cloud TTS — call directly from options page (it's a regular HTML
+      // page that can fetch cross-origin).
       try {
         const key = await props.config.getAutoSpeakApiKey();
         if (!key) {
