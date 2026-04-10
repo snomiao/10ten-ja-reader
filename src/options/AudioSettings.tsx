@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useRef, useState } from 'preact/hooks';
-import browser from 'webextension-polyfill';
 
 import { TTS_PRESETS, parseEngine } from '../background/cloud-tts';
 import type { Config } from '../common/config';
@@ -144,22 +143,22 @@ export function AudioSettings(props: Props) {
       });
       window.speechSynthesis.speak(utterance);
     } else {
-      // Cloud TTS via background worker
+      // Cloud TTS — call directly from the options page (no sendMessage
+      // to the background worker needed; options pages can fetch()).
       try {
-        const response: Record<string, unknown> =
-          await browser.runtime.sendMessage({
-            type: 'cloudTts',
-            text: sampleText,
-            engine,
-          });
-        if (!response || response.error) {
-          const msg = String(response?.error || 'Unknown error');
-          console.warn('[10ten] Test TTS error:', msg);
+        const key = await props.config.getAutoSpeakApiKey();
+        if (!key) {
           setTestStatus('error');
-          setTestError(msg);
+          setTestError('No API key configured');
           return;
         }
-        const audio = response.audio as string;
+        const { cloudTts } = await import('../background/cloud-tts');
+        const response = await cloudTts({
+          text: sampleText,
+          engine,
+          apiKey: key,
+        });
+        const audio = response.audio;
         const binary = atob(audio);
         const bytes = new Uint8Array(binary.length);
         for (let i = 0; i < binary.length; i++) {

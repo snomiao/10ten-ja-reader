@@ -588,7 +588,12 @@ browser.runtime.onMessage.addListener(
       case 'cloudTts':
         return (async () => {
           try {
-            const { cloudTts: doCloudTts } = await import('./cloud-tts');
+            // Static import — dynamic import('./cloud-tts') would trigger
+            // rspack's chunk loader which uses document.createElement(),
+            // unavailable in service workers.
+            const { cloudTts: doCloudTts } = await import(
+              /* webpackMode: "eager" */ './cloud-tts'
+            );
             const apiKey = await config.ready.then(() =>
               config.getAutoSpeakApiKey()
             );
