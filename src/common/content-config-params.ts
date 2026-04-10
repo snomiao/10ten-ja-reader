@@ -64,9 +64,11 @@ export interface ContentConfigParams {
   // 'reading': the dictionary headword reading
   autoSpeakSource: 'matched' | 'reading';
 
-  // Which speech engine to use. Currently only the browser-built-in Web Speech
-  // API is supported but kept as an enum for future expansion.
-  autoSpeakEngine: 'browser';
+  // Which speech engine to use for auto-speak.
+  // Format: 'browser' for local Web Speech API, or 'provider/model/voice'
+  // for cloud TTS (e.g. 'gemini/gemini-2.5-flash-preview-tts/Kore',
+  // 'openai/gpt-4o-mini-tts/alloy', 'elevenlabs/eleven_multilingual_v2/Rachel').
+  autoSpeakEngine: string;
 
   // Modifier keys which must be held down for auto-speak to fire on hover.
   // An empty array means no modifier is required.

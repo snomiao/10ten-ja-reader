@@ -1,5 +1,6 @@
-import { useCallback } from 'preact/hooks';
+import { useCallback, useEffect, useState } from 'preact/hooks';
 
+import { TTS_PRESETS, parseEngine } from '../background/cloud-tts';
 import type { Config } from '../common/config';
 import { useLocale } from '../common/i18n';
 
@@ -20,6 +21,16 @@ export function AudioSettings(props: Props) {
   const autoSpeakEngine = useConfigValue(props.config, 'autoSpeakEngine');
   const autoSpeakModKeys = useConfigValue(props.config, 'autoSpeakModKeys');
 
+  // API key is stored in local storage (async), not sync.
+  const [apiKey, setApiKey] = useState('');
+  const [apiKeyLoaded, setApiKeyLoaded] = useState(false);
+  useEffect(() => {
+    void props.config.getAutoSpeakApiKey().then((key) => {
+      setApiKey(key);
+      setApiKeyLoaded(true);
+    });
+  }, [props.config]);
+
   const onChangeAutoSpeak = useCallback(
     (value: boolean) => {
       props.config.autoSpeak = value;
@@ -35,8 +46,16 @@ export function AudioSettings(props: Props) {
   );
 
   const onChangeEngine = useCallback(
-    (value: 'browser') => {
+    (value: string) => {
       props.config.autoSpeakEngine = value;
+    },
+    [props.config]
+  );
+
+  const onChangeApiKey = useCallback(
+    (value: string) => {
+      setApiKey(value);
+      void props.config.setAutoSpeakApiKey(value);
     },
     [props.config]
   );
@@ -53,6 +72,9 @@ export function AudioSettings(props: Props) {
     },
     [props.config]
   );
+
+  const { provider } = parseEngine(autoSpeakEngine);
+  const needsApiKey = provider !== 'browser';
 
   return (
     <>
@@ -92,16 +114,45 @@ export function AudioSettings(props: Props) {
           <label for="autoSpeakEngine">
             {t('options_auto_speak_engine_label')}
           </label>
-          <select
-            id="autoSpeakEngine"
-            name="autoSpeakEngine"
-            disabled={!autoSpeak}
-            onChange={(e) => onChangeEngine(e.currentTarget.value as 'browser')}
-          >
-            <option value="browser" selected={autoSpeakEngine === 'browser'}>
-              {t('options_auto_speak_engine_browser')}
-            </option>
-          </select>
+          <div>
+            <input
+              id="autoSpeakEngine"
+              name="autoSpeakEngine"
+              type="text"
+              list="autoSpeakEnginePresets"
+              disabled={!autoSpeak}
+              value={autoSpeakEngine}
+              onInput={(e) => onChangeEngine(e.currentTarget.value)}
+              class="w-full min-w-[320px] rounded border border-zinc-300 px-2 py-1 text-sm"
+              placeholder="browser"
+            />
+            <datalist id="autoSpeakEnginePresets">
+              {TTS_PRESETS.map((preset) => (
+                <option key={preset.value} value={preset.value}>
+                  {preset.label}
+                </option>
+              ))}
+            </datalist>
+          </div>
+
+          {needsApiKey && (
+            <>
+              <label for="autoSpeakApiKey">
+                {t('options_auto_speak_api_key_label')}
+              </label>
+              <input
+                id="autoSpeakApiKey"
+                name="autoSpeakApiKey"
+                type="password"
+                disabled={!autoSpeak || !apiKeyLoaded}
+                value={apiKey}
+                onInput={(e) => onChangeApiKey(e.currentTarget.value)}
+                class="w-full min-w-[320px] rounded border border-zinc-300 px-2 py-1 text-sm"
+                placeholder={`${provider} API key`}
+                autocomplete="off"
+              />
+            </>
+          )}
         </div>
 
         <div>

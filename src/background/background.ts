@@ -585,6 +585,29 @@ browser.runtime.onMessage.addListener(
             return null;
           });
 
+      case 'cloudTts':
+        return (async () => {
+          try {
+            const { cloudTts: doCloudTts } = await import('./cloud-tts');
+            const apiKey = await config.ready.then(() =>
+              config.getAutoSpeakApiKey()
+            );
+            if (!apiKey) {
+              return { error: 'No API key configured for cloud TTS' };
+            }
+            const result = await doCloudTts({
+              text: request.text,
+              engine: request.engine,
+              apiKey,
+            });
+            return result;
+          } catch (e) {
+            const msg = e instanceof Error ? e.message : String(e);
+            console.warn('[10ten-ja-reader] Cloud TTS error:', msg);
+            return { error: msg };
+          }
+        })();
+
       case 'toggleDefinition':
         Bugsnag.leaveBreadcrumb('Toggling definitions on/off');
         void config.ready.then(() => {

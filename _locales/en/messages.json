@@ -1375,13 +1375,17 @@
     "message": "Read aloud on hover",
     "description": "Label for the checkbox enabling automatic text-to-speech when the popup is shown on hover"
   },
+  "options_auto_speak_api_key_label": {
+    "message": "API key",
+    "description": "Label for the API key input field for cloud TTS engines (stored locally, never synced)"
+  },
   "options_auto_speak_engine_browser": {
     "message": "Browser built-in",
     "description": "Speech engine option using the browser's built-in Web Speech API"
   },
   "options_auto_speak_engine_label": {
     "message": "Speech engine",
-    "description": "Label for the dropdown selecting the speech engine"
+    "description": "Label for the combobox selecting the speech engine (provider/model/voice)"
   },
   "options_auto_speak_mod_keys_label": {
     "message": "Only when holding (leave empty for always)",

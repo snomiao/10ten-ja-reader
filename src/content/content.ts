@@ -2667,36 +2667,181 @@ export class ContentHandler {
     const matchedSurface =
       lookupText && matchLen ? lookupText.slice(0, matchLen) : undefined;
     const reading = firstWord?.r[0]?.ent;
-    const spoken =
+    const wordToSpeak =
       this.#config.autoSpeakSource === 'reading'
         ? reading || matchedSurface
         : matchedSurface || reading;
+
+    // If the cursor is on (or very near) the first word of a sentence,
+    // speak the entire sentence instead of just the matched word.
+    const sentence = this.getSentenceAtCursor();
+    const spoken = sentence || wordToSpeak;
     this.speakText(spoken, { dedupe: true });
+  }
+
+  // ── Sentence extraction ──────────────────────────────────────────────────
+  //
+  // Walks the DOM around #currentTextRange to extract the full sentence
+  // (delimited by 。！？!?\n or block-element boundaries). Returns the
+  // sentence string only when the matched text sits at or very near the
+  // START of the sentence (≤ 3 chars from sentence-start, ignoring
+  // whitespace). Otherwise returns null so callers fall back to word-level
+  // speech.
+
+  static readonly SENTENCE_END_CHARS = '。！？!?…';
+  static readonly MAX_SENTENCE_LENGTH = 200;
+
+  // Returns the full sentence ending at the cursor's sentence-end mark
+  // (。！？!?…), or null if the cursor is NOT on such a mark.
+  //
+  // UX: hovering on 。 reads the whole sentence aloud; hovering anywhere
+  // else reads just the matched word (existing behaviour).
+  getSentenceAtCursor(): string | null {
+    const lookupText = this.#currentLookupParams?.text;
+    if (!lookupText) {
+      return null;
+    }
+
+    // Only activate when the character under the cursor is a sentence-end
+    // punctuation mark.
+    const firstChar = lookupText[0];
+    if (!ContentHandler.SENTENCE_END_CHARS.includes(firstChar)) {
+      return null;
+    }
+
+    const textRange = this.#currentTextRange;
+    if (!textRange?.length) {
+      return null;
+    }
+
+    const { node, start: matchStart } = textRange[0];
+    if (node.nodeType !== Node.TEXT_NODE) {
+      return null;
+    }
+
+    const collected = this.collectInlineText(node, matchStart);
+    if (!collected) {
+      return null;
+    }
+
+    const { fullText, matchOffset } = collected;
+
+    // Walk backward from the sentence-end mark to find the sentence start
+    // (the character after the previous sentence-end mark or block boundary).
+    const endChars = ContentHandler.SENTENCE_END_CHARS;
+    let sentenceStart = 0;
+    for (let i = matchOffset - 1; i >= 0; i--) {
+      if (endChars.includes(fullText[i])) {
+        sentenceStart = i + 1;
+        break;
+      }
+    }
+
+    // Sentence ends at and includes the current sentence-end mark.
+    const sentenceEnd = matchOffset + 1;
+
+    const sentence = fullText.substring(sentenceStart, sentenceEnd).trim();
+
+    if (!sentence || sentence.length <= 1) {
+      return null;
+    }
+
+    const { MAX_SENTENCE_LENGTH } = ContentHandler;
+    return sentence.length > MAX_SENTENCE_LENGTH
+      ? sentence.substring(0, MAX_SENTENCE_LENGTH)
+      : sentence;
+  }
+
+  // Walk sibling text nodes within the nearest block-level ancestor to
+  // build a continuous text string. Returns { fullText, matchOffset }
+  // where matchOffset is the position of `matchStart` within fullText.
+  private collectInlineText(
+    textNode: Node,
+    matchStart: number
+  ): { fullText: string; matchOffset: number } | null {
+    // Find the nearest block-level ancestor.
+    let scope: Element | null = textNode.parentElement;
+    while (scope && this.isInlineElement(scope) && scope.parentElement) {
+      scope = scope.parentElement;
+    }
+    if (!scope) {
+      // Fallback: use just this text node.
+      const data = (textNode as Text).data;
+      return { fullText: data, matchOffset: matchStart };
+    }
+
+    // Walk all text nodes inside the block scope, skipping <rt> and <rp>.
+    const walker = document.createTreeWalker(scope, NodeFilter.SHOW_TEXT, {
+      acceptNode(n: Node): number {
+        const parent = n.parentElement;
+        if (parent?.closest('rt') || parent?.closest('rp')) {
+          return NodeFilter.FILTER_REJECT;
+        }
+        return NodeFilter.FILTER_ACCEPT;
+      },
+    });
+
+    let fullText = '';
+    let matchOffset = -1;
+    let currentNode: Node | null = walker.nextNode();
+    while (currentNode) {
+      const data = (currentNode as Text).data;
+      if (currentNode === textNode) {
+        matchOffset = fullText.length + matchStart;
+      }
+      fullText += data;
+      currentNode = walker.nextNode();
+    }
+
+    if (matchOffset < 0) {
+      return null;
+    }
+
+    return { fullText, matchOffset };
+  }
+
+  private isInlineElement(el: Element): boolean {
+    const display = window.getComputedStyle(el).display;
+    return (
+      display === 'inline' ||
+      display === 'inline-block' ||
+      display === 'inline-flex' ||
+      display === 'ruby' ||
+      display === 'ruby-text' ||
+      display === 'ruby-base'
+    );
   }
 
   speakText(
     text: string | undefined,
     { dedupe = false }: { dedupe?: boolean } = {}
   ) {
-    if (
-      !text ||
-      (dedupe && text === this.#lastSpokenReading) ||
-      typeof window === 'undefined' ||
-      typeof window.speechSynthesis === 'undefined'
-    ) {
+    if (!text || (dedupe && text === this.#lastSpokenReading)) {
       return;
     }
 
     if (dedupe) {
       this.#lastSpokenReading = text;
     } else {
-      // Allow re-speaking the same text on explicit user actions.
       this.#lastSpokenReading = undefined;
     }
 
+    const engine = this.#config.autoSpeakEngine;
+    if (engine === 'browser') {
+      this.speakWithBrowser(text);
+    } else {
+      void this.speakWithCloud(text, engine);
+    }
+  }
+
+  private speakWithBrowser(text: string) {
+    if (
+      typeof window === 'undefined' ||
+      typeof window.speechSynthesis === 'undefined'
+    ) {
+      return;
+    }
     try {
-      // Only cancel speech we ourselves started, so we don't interrupt
-      // unrelated speech initiated by the host page.
       if (this.#activeUtterance) {
         window.speechSynthesis.cancel();
       }
@@ -2719,6 +2864,87 @@ export class ContentHandler {
       window.speechSynthesis.speak(utterance);
     } catch {
       // Speech synthesis is best-effort; ignore failures.
+    }
+  }
+
+  // AudioContext for playing cloud TTS audio blobs.
+  #audioContext: AudioContext | undefined;
+  #activeAudioSource: AudioBufferSourceNode | undefined;
+
+  private async speakWithCloud(text: string, engine: string) {
+    try {
+      // Cancel any in-flight browser or cloud audio.
+      this.cancelAllSpeech();
+
+      const response: Record<string, unknown> =
+        await browser.runtime.sendMessage({ type: 'cloudTts', text, engine });
+
+      if (!response || response.error) {
+        console.warn(
+          '[10ten-ja-reader] Cloud TTS failed, falling back to browser:',
+          response?.error
+        );
+        this.speakWithBrowser(text);
+        return;
+      }
+
+      const audio = response.audio as string;
+
+      // Decode base64 → ArrayBuffer → AudioBuffer
+      const binary = atob(audio);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) {
+        bytes[i] = binary.charCodeAt(i);
+      }
+
+      if (!this.#audioContext) {
+        this.#audioContext = new AudioContext();
+      }
+      const ctx = this.#audioContext;
+      if (ctx.state === 'suspended') {
+        await ctx.resume();
+      }
+
+      const audioBuffer = await ctx.decodeAudioData(bytes.buffer.slice(0));
+      const source = ctx.createBufferSource();
+      source.buffer = audioBuffer;
+      source.connect(ctx.destination);
+      source.onended = () => {
+        if (this.#activeAudioSource === source) {
+          this.#activeAudioSource = undefined;
+        }
+      };
+      this.#activeAudioSource = source;
+      source.start();
+    } catch (e) {
+      console.warn('[10ten-ja-reader] Cloud TTS playback error:', e);
+      // Fall back to browser TTS.
+      this.speakWithBrowser(text);
+    }
+  }
+
+  private cancelAllSpeech() {
+    // Cancel browser speech
+    if (
+      this.#activeUtterance &&
+      typeof window !== 'undefined' &&
+      typeof window.speechSynthesis !== 'undefined'
+    ) {
+      try {
+        window.speechSynthesis.cancel();
+      } catch {
+        // Ignore.
+      }
+      this.#activeUtterance = undefined;
+    }
+    // Cancel cloud audio
+    if (this.#activeAudioSource) {
+      try {
+        this.#activeAudioSource.stop();
+      } catch {
+        // Ignore.
+      }
+      this.#activeAudioSource = undefined;
     }
   }
 

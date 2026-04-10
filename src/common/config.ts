@@ -59,7 +59,7 @@ interface Settings {
   autoExpand?: Array<AutoExpandableEntry>;
   autoSpeak?: boolean;
   autoSpeakSource?: 'matched' | 'reading';
-  autoSpeakEngine?: 'browser';
+  autoSpeakEngine?: string;
   autoSpeakModKeys?: string;
   bunproDisplay?: boolean;
   contextMenuEnable?: boolean;
@@ -1212,18 +1212,35 @@ export class Config {
     void browser.storage.sync.set({ autoSpeakSource: value });
   }
 
-  // autoSpeakEngine: Defaults to 'browser'
+  // autoSpeakEngine: Defaults to 'browser'.
+  // Format: 'browser' or 'provider/model/voice'.
 
-  get autoSpeakEngine(): 'browser' {
+  get autoSpeakEngine(): string {
     return this.#settings.autoSpeakEngine || 'browser';
   }
 
-  set autoSpeakEngine(value: 'browser') {
+  set autoSpeakEngine(value: string) {
     if (this.#settings.autoSpeakEngine === value) {
       return;
     }
     this.#settings.autoSpeakEngine = value;
     void browser.storage.sync.set({ autoSpeakEngine: value });
+  }
+
+  // autoSpeakApiKey: stored in LOCAL storage only (never synced — keys must
+  // not leave the device). Read/write is async because local storage is async.
+
+  async getAutoSpeakApiKey(): Promise<string> {
+    try {
+      const result = await browser.storage.local.get('autoSpeakApiKey');
+      return (result.autoSpeakApiKey as string) || '';
+    } catch {
+      return '';
+    }
+  }
+
+  async setAutoSpeakApiKey(value: string): Promise<void> {
+    await browser.storage.local.set({ autoSpeakApiKey: value });
   }
 
   // autoSpeakModKeys: Defaults to ['Shift']. The empty string is stored
