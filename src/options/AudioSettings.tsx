@@ -88,8 +88,27 @@ export function AudioSettings(props: Props) {
     'idle'
   );
   const [testError, setTestError] = useState('');
+  const [testElapsed, setTestElapsed] = useState(0);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const audioCtxRef = useRef<AudioContext | null>(null);
   const audioSourceRef = useRef<AudioBufferSourceNode | null>(null);
+
+  const startTimer = useCallback(() => {
+    setTestElapsed(0);
+    if (timerRef.current) {clearInterval(timerRef.current);}
+    const start = Date.now();
+    timerRef.current = setInterval(
+      () => setTestElapsed(Math.floor((Date.now() - start) / 1000)),
+      1000
+    );
+  }, []);
+
+  const stopTimer = useCallback(() => {
+    if (timerRef.current) {
+      clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
+  }, []);
 
   const onTestSpeak = useCallback(async () => {
     const engine = props.config.autoSpeakEngine;
@@ -117,6 +136,7 @@ export function AudioSettings(props: Props) {
 
     setTestStatus('playing');
     setTestError('');
+    startTimer();
 
     if (p === 'browser') {
       // Browser TTS
@@ -136,8 +156,12 @@ export function AudioSettings(props: Props) {
       if (jaVoice) {
         utterance.voice = jaVoice;
       }
-      utterance.addEventListener('end', () => setTestStatus('idle'));
+      utterance.addEventListener('end', () => {
+        stopTimer();
+        setTestStatus('idle');
+      });
       utterance.addEventListener('error', (e) => {
+        stopTimer();
         setTestStatus('error');
         setTestError(e.error || 'Browser speech synthesis failed');
       });
@@ -148,6 +172,7 @@ export function AudioSettings(props: Props) {
       try {
         const key = await props.config.getAutoSpeakApiKey();
         if (!key) {
+          stopTimer();
           setTestStatus('error');
           setTestError('No API key configured');
           return;
@@ -177,13 +202,16 @@ export function AudioSettings(props: Props) {
         source.connect(ctx.destination);
         source.onended = () => {
           audioSourceRef.current = null;
+          stopTimer();
           setTestStatus('idle');
         };
         audioSourceRef.current = source;
         source.start();
+        stopTimer();
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         console.warn('[10ten] Test TTS error:', msg);
+        stopTimer();
         setTestStatus('error');
         setTestError(msg);
       }
@@ -303,9 +331,9 @@ export function AudioSettings(props: Props) {
                   class="shrink-0 rounded border border-zinc-300 bg-zinc-50 px-3 py-1 text-sm hover:bg-zinc-100 disabled:opacity-40"
                 >
                   {testStatus === 'playing'
-                    ? '...'
+                    ? `${testElapsed}s...`
                     : testStatus === 'error'
-                      ? '✗'
+                      ? '✗ Retry'
                       : '▶ Test'}
                 </button>
               </div>
@@ -341,9 +369,9 @@ export function AudioSettings(props: Props) {
                 class="w-fit rounded border border-zinc-300 bg-zinc-50 px-3 py-1 text-sm hover:bg-zinc-100 disabled:opacity-40"
               >
                 {testStatus === 'playing'
-                  ? '...'
+                  ? `${testElapsed}s...`
                   : testStatus === 'error'
-                    ? '✗'
+                    ? '✗ Retry'
                     : '▶ Test'}
               </button>
               {testStatus === 'error' && testError && (
