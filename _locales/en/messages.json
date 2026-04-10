@@ -1391,6 +1391,10 @@
     "message": "Only when holding (leave empty for always)",
     "description": "Label for the modifier-key checkboxes that gate auto-speak on hover"
   },
+  "options_auto_speak_sample_label": {
+    "message": "Sample text",
+    "description": "Label for the textarea where users can edit the sample text for TTS testing"
+  },
   "options_auto_speak_scope_label": {
     "message": "Read aloud",
     "description": "Label for the dropdown selecting what to read aloud on hover"

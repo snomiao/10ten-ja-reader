@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState } from 'preact/hooks';
+import { useCallback, useEffect, useRef, useState } from 'preact/hooks';
+import browser from 'webextension-polyfill';
 
 import { TTS_PRESETS, parseEngine } from '../background/cloud-tts';
 import type { Config } from '../common/config';
@@ -80,6 +81,105 @@ export function AudioSettings(props: Props) {
     },
     [props.config]
   );
+
+  const [sampleText, setSampleText] = useState(
+    '古池や蛙飛び込む水の音。\n春はあけぼの。やうやう白くなりゆく山際、少し明かりて、紫だちたる雲の細くたなびきたる。\n夏は夜。月のころはさらなり。闇もなほ、蛍の多く飛びちがひたる。また、ただ一つ二つなど、ほのかにうち光りて行くもをかし。雨など降るもをかし。'
+  );
+  const [testStatus, setTestStatus] = useState<'idle' | 'playing' | 'error'>(
+    'idle'
+  );
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const audioSourceRef = useRef<AudioBufferSourceNode | null>(null);
+
+  const onTestSpeak = useCallback(async () => {
+    const engine = props.config.autoSpeakEngine;
+    const { provider: p } = parseEngine(engine);
+
+    // Stop any currently playing test
+    if (audioSourceRef.current) {
+      try {
+        audioSourceRef.current.stop();
+      } catch {
+        /* ignore */
+      }
+      audioSourceRef.current = null;
+    }
+    if (
+      typeof window !== 'undefined' &&
+      typeof window.speechSynthesis !== 'undefined'
+    ) {
+      window.speechSynthesis.cancel();
+    }
+
+    if (!sampleText.trim()) {
+      return;
+    }
+
+    setTestStatus('playing');
+
+    if (p === 'browser') {
+      // Browser TTS
+      if (
+        typeof window === 'undefined' ||
+        typeof window.speechSynthesis === 'undefined'
+      ) {
+        setTestStatus('error');
+        return;
+      }
+      const utterance = new SpeechSynthesisUtterance(sampleText);
+      utterance.lang = 'ja-JP';
+      const jaVoice = window.speechSynthesis
+        .getVoices()
+        .find((v) => v.lang === 'ja-JP' || v.lang.startsWith('ja'));
+      if (jaVoice) {
+        utterance.voice = jaVoice;
+      }
+      utterance.addEventListener('end', () => setTestStatus('idle'));
+      utterance.addEventListener('error', () => setTestStatus('error'));
+      window.speechSynthesis.speak(utterance);
+    } else {
+      // Cloud TTS via background worker
+      try {
+        const response: Record<string, unknown> =
+          await browser.runtime.sendMessage({
+            type: 'cloudTts',
+            text: sampleText,
+            engine,
+          });
+        if (!response || response.error) {
+          console.warn('[10ten] Test TTS error:', response?.error);
+          setTestStatus('error');
+          return;
+        }
+        const audio = response.audio as string;
+        const binary = atob(audio);
+        const bytes = new Uint8Array(binary.length);
+        for (let i = 0; i < binary.length; i++) {
+          bytes[i] = binary.charCodeAt(i);
+        }
+        if (!audioCtxRef.current) {
+          audioCtxRef.current = new AudioContext();
+        }
+        const ctx = audioCtxRef.current;
+        if (ctx.state === 'suspended') {
+          await ctx.resume();
+        }
+        const buf = await ctx.decodeAudioData(bytes.buffer.slice(0));
+        const source = ctx.createBufferSource();
+        source.buffer = buf;
+        source.connect(ctx.destination);
+        source.onended = () => {
+          audioSourceRef.current = null;
+          setTestStatus('idle');
+        };
+        audioSourceRef.current = source;
+        source.start();
+      } catch (e) {
+        console.warn('[10ten] Test TTS error:', e);
+        setTestStatus('error');
+      }
+    }
+  }, [props.config, sampleText]);
 
   const { provider } = parseEngine(autoSpeakEngine);
   const needsApiKey = provider !== 'browser';
@@ -175,17 +275,62 @@ export function AudioSettings(props: Props) {
               <label for="autoSpeakApiKey">
                 {t('options_auto_speak_api_key_label')}
               </label>
-              <input
-                id="autoSpeakApiKey"
-                name="autoSpeakApiKey"
-                type="password"
-                disabled={!autoSpeak || !apiKeyLoaded}
-                value={apiKey}
-                onInput={(e) => onChangeApiKey(e.currentTarget.value)}
-                class="w-full min-w-[320px] rounded border border-zinc-300 px-2 py-1 text-sm"
-                placeholder={`${provider} API key`}
-                autocomplete="off"
-              />
+              <div class="flex items-center gap-2">
+                <input
+                  id="autoSpeakApiKey"
+                  name="autoSpeakApiKey"
+                  type="password"
+                  disabled={!autoSpeak || !apiKeyLoaded}
+                  value={apiKey}
+                  onInput={(e) => onChangeApiKey(e.currentTarget.value)}
+                  class="min-w-[240px] flex-1 rounded border border-zinc-300 px-2 py-1 text-sm"
+                  placeholder={`${provider} API key`}
+                  autocomplete="off"
+                />
+                <button
+                  type="button"
+                  disabled={!autoSpeak || !apiKey}
+                  onClick={onTestSpeak}
+                  class="shrink-0 rounded border border-zinc-300 bg-zinc-50 px-3 py-1 text-sm hover:bg-zinc-100 disabled:opacity-40"
+                >
+                  {testStatus === 'playing'
+                    ? '...'
+                    : testStatus === 'error'
+                      ? '✗'
+                      : '▶ Test'}
+                </button>
+              </div>
+            </>
+          )}
+
+          <label for="autoSpeakSample">
+            {t('options_auto_speak_sample_label')}
+          </label>
+          <textarea
+            id="autoSpeakSample"
+            name="autoSpeakSample"
+            disabled={!autoSpeak}
+            value={sampleText}
+            onInput={(e) => setSampleText(e.currentTarget.value)}
+            rows={3}
+            class="w-full min-w-[320px] rounded border border-zinc-300 px-2 py-1 text-sm"
+            placeholder="Sample text for testing..."
+          />
+          {provider === 'browser' && (
+            <>
+              <div />
+              <button
+                type="button"
+                disabled={!autoSpeak}
+                onClick={onTestSpeak}
+                class="w-fit rounded border border-zinc-300 bg-zinc-50 px-3 py-1 text-sm hover:bg-zinc-100 disabled:opacity-40"
+              >
+                {testStatus === 'playing'
+                  ? '...'
+                  : testStatus === 'error'
+                    ? '✗'
+                    : '▶ Test'}
+              </button>
             </>
           )}
         </div>
