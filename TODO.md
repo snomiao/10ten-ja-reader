@@ -40,6 +40,11 @@
 
 ## LATER
 
+- [ ] **Chunked TTS for reduced TTFB** — split long sentences/articles at natural boundaries (、。) into small chunks (~20-50 chars), fetch TTS for each chunk concurrently, play chunk 1 as soon as it returns while chunks 2+ continue fetching in background. Seamless gapless playback via AudioContext buffer queuing. Expected improvement: TTFB drops from 10-30s (full sentence) to 1-3s (first clause). Requires:
+  - Sentence splitter that respects Japanese clause boundaries (、。！？)
+  - AudioContext buffer queue with pre-buffering of next chunk
+  - Graceful cancel mid-stream when mouse leaves
+  - Cache individual chunks for re-hover
 - [ ] Voice speed / pitch controls
 - [ ] Per-site auto-speak enable/disable
 - [ ] Keyboard shortcut to speak current popup content on demand
