@@ -58,6 +58,7 @@ import type {
 import type { CopyType } from '../common/copy-keys';
 import { CopyKeys } from '../common/copy-keys';
 import { MAX_LOOKUP_LENGTH } from '../common/limits';
+import { japaneseChar } from '../utils/char-range';
 import { isEditableNode, isInteractiveElement } from '../utils/dom-utils';
 import type { MarginBox, Point, Rect } from '../utils/geometry';
 import {
@@ -175,6 +176,7 @@ export class ContentHandler {
   // that we can popup the window later using its properties.
   #lastPointerTarget: Element | null = null;
   #lastPointerMoveScreenPoint = { x: -1, y: -1 };
+  #lastPointerModifiers = { alt: false, ctrl: false, shift: false };
 
   // Safari-only redundant pointermove/mousemove event handling
   //
@@ -245,6 +247,12 @@ export class ContentHandler {
   #currentTargetProps: TargetProps | undefined;
   #currentDict: MajorDataSeries = 'words';
 
+  // Auto-speak: track the most recently spoken reading so we don't repeat the
+  // same utterance every time the popup re-renders for the same word.
+  #lastSpokenReading: string | undefined;
+  #lastSpokenSentence: string | undefined;
+  #activeUtterance: SpeechSynthesisUtterance | undefined;
+
   // Copy support
   //
   // (copyMode is actually used by the text-handling window too to know which
@@ -275,6 +283,7 @@ export class ContentHandler {
     this.onFullScreenChange = this.onFullScreenChange.bind(this);
     this.onInterFrameMessage = this.onInterFrameMessage.bind(this);
     this.onBackgroundMessage = this.onBackgroundMessage.bind(this);
+    this.onDblClick = this.onDblClick.bind(this);
 
     this.onConfigChange = this.onConfigChange.bind(this);
     this.#config.addListener(this.onConfigChange);
@@ -283,6 +292,7 @@ export class ContentHandler {
       capture: true,
     });
     window.addEventListener('mousedown', this.onMouseDown);
+    window.addEventListener('dblclick', this.onDblClick);
     window.addEventListener('keydown', this.onKeyDown, { capture: true });
     window.addEventListener('keyup', this.onKeyUp, { capture: true });
     window.addEventListener('focusin', this.onFocusIn);
@@ -514,6 +524,7 @@ export class ContentHandler {
       capture: true,
     });
     window.removeEventListener('mousedown', this.onMouseDown);
+    window.removeEventListener('dblclick', this.onDblClick);
     window.removeEventListener('keydown', this.onKeyDown, { capture: true });
     window.removeEventListener('keyup', this.onKeyUp, { capture: true });
     window.removeEventListener('focusin', this.onFocusIn);
@@ -639,6 +650,14 @@ export class ContentHandler {
       this.#ignoreNextPointerMove = false;
     }
     this.#lastPointerMoveScreenPoint = { x: event.clientX, y: event.clientY };
+    this.#lastPointerModifiers = {
+      alt:
+        event.altKey ||
+        (typeof event.getModifierState === 'function' &&
+          event.getModifierState('AltGraph')),
+      ctrl: event.ctrlKey,
+      shift: event.shiftKey,
+    };
 
     // If we start moving the mouse, we should stop trying to recognize a tap on
     // the "pin" key as such since it's no longer a tap (and very often these
@@ -980,8 +999,37 @@ export class ContentHandler {
   }
 
   onKeyDown(event: KeyboardEvent) {
+    // Update the cached modifier state from this event so that auto-speak can
+    // react to a modifier press while the popup is already showing (without
+    // requiring the mouse to move first).
+    this.#lastPointerModifiers = {
+      alt:
+        event.altKey ||
+        (typeof event.getModifierState === 'function' &&
+          event.getModifierState('AltGraph')),
+      ctrl: event.ctrlKey,
+      shift: event.shiftKey,
+    };
+
     const textBoxInFocus =
       document.activeElement && isEditableNode(document.activeElement);
+
+    // If auto-speak is enabled and the user just pressed one of the configured
+    // gating modifier keys while a popup is already visible, speak now.
+    //
+    // We gate this on `!textBoxInFocus` and `!this.#typingMode` so that
+    // pressing Shift while typing in an editable element does not unexpectedly
+    // start TTS.
+    if (
+      this.#config.autoSpeak &&
+      this.#currentSearchResult &&
+      this.#config.autoSpeakModKeys.length &&
+      !textBoxInFocus &&
+      !this.#typingMode &&
+      ['Alt', 'AltGraph', 'Control', 'Shift'].includes(event.key)
+    ) {
+      this.speakCurrentReading();
+    }
 
     // If the user pressed the hold-to-show key combination, show the popup
     // if possible.
@@ -1095,6 +1143,18 @@ export class ContentHandler {
   }
 
   onKeyUp(event: KeyboardEvent) {
+    // Mirror the modifier-cache update from `onKeyDown` so that releasing a
+    // modifier before the deferred `commitPopup` timeout fires updates the
+    // cached state used by the auto-speak gating check.
+    this.#lastPointerModifiers = {
+      alt:
+        event.altKey ||
+        (typeof event.getModifierState === 'function' &&
+          event.getModifierState('AltGraph')),
+      ctrl: event.ctrlKey,
+      shift: event.shiftKey,
+    };
+
     // If we are showing a popup that required certain hold keys, check if they
     // are now no longer held, and, if they are not, trigger an update of the
     // popup where we mark it as interactive
@@ -2578,6 +2638,359 @@ export class ContentHandler {
       displayMode: 'hover',
       fixPosition: false,
     });
+
+    if (this.#config.autoSpeak) {
+      this.speakCurrentReading();
+    }
+  }
+
+  speakCurrentReading() {
+    // Gate on configured modifier keys (if any). We check the latest known
+    // pointer modifier state since `commitPopup` is fired from a timeout, not
+    // directly from a key/pointer event.
+    const requiredMods = this.#config.autoSpeakModKeys;
+    if (requiredMods.length) {
+      const mods = this.#lastPointerModifiers;
+      if (requiredMods.includes('Alt') && !mods.alt) {
+        return;
+      }
+      if (requiredMods.includes('Ctrl') && !mods.ctrl) {
+        return;
+      }
+      if (requiredMods.includes('Shift') && !mods.shift) {
+        return;
+      }
+    }
+
+    const firstWord = this.#currentSearchResult?.words?.data[0];
+    const lookupText = this.#currentLookupParams?.text;
+    const matchLen = firstWord?.matchLen;
+    const matchedSurface =
+      lookupText && matchLen ? lookupText.slice(0, matchLen) : undefined;
+    const reading = firstWord?.r[0]?.ent;
+    const wordToSpeak =
+      this.#config.autoSpeakSource === 'reading'
+        ? reading || matchedSurface
+        : matchedSurface || reading;
+
+    const scope = this.#config.autoSpeakScope;
+    const sentence = scope !== 'word' ? this.getSentenceAtCursor() : null;
+
+    const wordEngine = this.#config.autoSpeakWordEngine;
+    const sentenceEngine = this.#config.autoSpeakSentenceEngine;
+
+    // Skip the sentence if we already spoke it (mouse sliding within the
+    // same sentence to a different word).
+    const sentenceAlreadySpoken =
+      sentence && sentence === this.#lastSpokenSentence;
+
+    if (scope === 'sentence') {
+      if (!sentenceAlreadySpoken) {
+        this.#lastSpokenSentence = sentence || undefined;
+        this.speakText(sentence || wordToSpeak, {
+          dedupe: true,
+          engine: sentenceEngine,
+        });
+      }
+    } else if (
+      scope === 'word+sentence' &&
+      sentence &&
+      wordToSpeak &&
+      sentence !== wordToSpeak
+    ) {
+      // Word first, then sentence (only if sentence hasn't been spoken yet).
+      this.speakText(wordToSpeak, {
+        dedupe: true,
+        engine: wordEngine,
+        onEnd: () => {
+          if (!sentenceAlreadySpoken) {
+            this.#lastSpokenSentence = sentence;
+            this.speakText(sentence, { engine: sentenceEngine });
+          }
+        },
+      });
+    } else {
+      this.speakText(wordToSpeak, { dedupe: true, engine: wordEngine });
+    }
+  }
+
+  // ── Sentence extraction ──────────────────────────────────────────────────
+
+  static readonly SENTENCE_END_CHARS = '。！？!?…';
+  static readonly MAX_SENTENCE_LENGTH = 200;
+
+  // Extract the sentence surrounding the hovered word. Walks backward to
+  // find the previous sentence-end mark (or block start), then forward to
+  // find the next sentence-end mark (or block end).
+  getSentenceAtCursor(): string | null {
+    const textRange = this.#currentTextRange;
+    if (!textRange?.length) {
+      return null;
+    }
+
+    const { node, start: matchStart } = textRange[0];
+    if (node.nodeType !== Node.TEXT_NODE) {
+      return null;
+    }
+
+    const collected = this.collectInlineText(node, matchStart);
+    if (!collected) {
+      return null;
+    }
+
+    const { fullText, matchOffset } = collected;
+    const endChars = ContentHandler.SENTENCE_END_CHARS;
+    const { MAX_SENTENCE_LENGTH } = ContentHandler;
+
+    // Find sentence start: walk backward from match to previous sentence-end
+    // or block boundary.
+    let sentenceStart = 0;
+    for (let i = matchOffset - 1; i >= 0; i--) {
+      if (endChars.includes(fullText[i])) {
+        sentenceStart = i + 1;
+        break;
+      }
+    }
+
+    // Find sentence end: walk forward from match to next sentence-end
+    // or block boundary.
+    let sentenceEnd = fullText.length;
+    for (let i = matchOffset; i < fullText.length; i++) {
+      if (endChars.includes(fullText[i])) {
+        sentenceEnd = i + 1; // include the punctuation
+        break;
+      }
+    }
+
+    const sentence = fullText.substring(sentenceStart, sentenceEnd).trim();
+
+    // Only return if the sentence is meaningfully longer than a single word.
+    if (!sentence || sentence.length <= 3) {
+      return null;
+    }
+
+    return sentence.length > MAX_SENTENCE_LENGTH
+      ? sentence.substring(0, MAX_SENTENCE_LENGTH)
+      : sentence;
+  }
+
+  private collectInlineText(
+    textNode: Node,
+    matchStart: number
+  ): { fullText: string; matchOffset: number } | null {
+    let scope: Element | null = textNode.parentElement;
+    while (scope && this.isInlineElement(scope) && scope.parentElement) {
+      scope = scope.parentElement;
+    }
+    if (!scope) {
+      const data = (textNode as Text).data;
+      return { fullText: data, matchOffset: matchStart };
+    }
+
+    const walker = document.createTreeWalker(scope, NodeFilter.SHOW_TEXT, {
+      acceptNode(n: Node): number {
+        const parent = n.parentElement;
+        if (parent?.closest('rt') || parent?.closest('rp')) {
+          return NodeFilter.FILTER_REJECT;
+        }
+        return NodeFilter.FILTER_ACCEPT;
+      },
+    });
+
+    let fullText = '';
+    let matchOffset = -1;
+    let currentNode: Node | null = walker.nextNode();
+    while (currentNode) {
+      const data = (currentNode as Text).data;
+      if (currentNode === textNode) {
+        matchOffset = fullText.length + matchStart;
+      }
+      fullText += data;
+      currentNode = walker.nextNode();
+    }
+
+    return matchOffset >= 0 ? { fullText, matchOffset } : null;
+  }
+
+  private isInlineElement(el: Element): boolean {
+    const display = window.getComputedStyle(el).display;
+    return (
+      display === 'inline' ||
+      display === 'inline-block' ||
+      display === 'inline-flex' ||
+      display === 'ruby' ||
+      display === 'ruby-text' ||
+      display === 'ruby-base'
+    );
+  }
+
+  speakText(
+    text: string | undefined,
+    {
+      dedupe = false,
+      onEnd,
+      engine,
+    }: { dedupe?: boolean; onEnd?: () => void; engine?: string } = {}
+  ) {
+    if (!text || (dedupe && text === this.#lastSpokenReading)) {
+      return;
+    }
+
+    if (dedupe) {
+      this.#lastSpokenReading = text;
+    } else {
+      this.#lastSpokenReading = undefined;
+    }
+
+    const resolvedEngine = engine || this.#config.autoSpeakWordEngine;
+    if (resolvedEngine === 'browser') {
+      this.speakWithBrowser(text, onEnd);
+    } else {
+      void this.speakWithCloud(text, resolvedEngine, onEnd);
+    }
+  }
+
+  private speakWithBrowser(text: string, onEnd?: () => void) {
+    if (
+      typeof window === 'undefined' ||
+      typeof window.speechSynthesis === 'undefined'
+    ) {
+      return;
+    }
+    try {
+      if (this.#activeUtterance) {
+        window.speechSynthesis.cancel();
+      }
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.lang = 'ja-JP';
+      const jaVoice = window.speechSynthesis
+        .getVoices()
+        .find((v) => v.lang === 'ja-JP' || v.lang.startsWith('ja'));
+      if (jaVoice) {
+        utterance.voice = jaVoice;
+      }
+      const clearActive = () => {
+        if (this.#activeUtterance === utterance) {
+          this.#activeUtterance = undefined;
+        }
+      };
+      utterance.addEventListener('end', () => {
+        clearActive();
+        onEnd?.();
+      });
+      utterance.addEventListener('error', clearActive);
+      this.#activeUtterance = utterance;
+      window.speechSynthesis.speak(utterance);
+    } catch {
+      // Speech synthesis is best-effort; ignore failures.
+    }
+  }
+
+  // AudioContext for playing cloud TTS audio blobs.
+  #audioContext: AudioContext | undefined;
+  #activeAudioSource: AudioBufferSourceNode | undefined;
+
+  private async speakWithCloud(
+    text: string,
+    engine: string,
+    onEnd?: () => void
+  ) {
+    try {
+      // Cancel any in-flight browser or cloud audio.
+      this.cancelAllSpeech();
+
+      const response: Record<string, unknown> =
+        await browser.runtime.sendMessage({ type: 'cloudTts', text, engine });
+
+      if (!response || response.error) {
+        console.warn(
+          '[10ten-ja-reader] Cloud TTS failed, falling back to browser:',
+          response?.error
+        );
+        this.speakWithBrowser(text);
+        return;
+      }
+
+      const audio = response.audio as string;
+
+      // Decode base64 → ArrayBuffer → AudioBuffer
+      const binary = atob(audio);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) {
+        bytes[i] = binary.charCodeAt(i);
+      }
+
+      if (!this.#audioContext) {
+        this.#audioContext = new AudioContext();
+      }
+      const ctx = this.#audioContext;
+      if (ctx.state === 'suspended') {
+        await ctx.resume();
+      }
+
+      const audioBuffer = await ctx.decodeAudioData(bytes.buffer.slice(0));
+      const source = ctx.createBufferSource();
+      source.buffer = audioBuffer;
+      source.connect(ctx.destination);
+      source.onended = () => {
+        if (this.#activeAudioSource === source) {
+          this.#activeAudioSource = undefined;
+        }
+        onEnd?.();
+      };
+      this.#activeAudioSource = source;
+      source.start();
+    } catch (e) {
+      console.warn('[10ten-ja-reader] Cloud TTS playback error:', e);
+      // Fall back to browser TTS.
+      this.speakWithBrowser(text);
+    }
+  }
+
+  private cancelAllSpeech() {
+    // Cancel browser speech
+    if (
+      this.#activeUtterance &&
+      typeof window !== 'undefined' &&
+      typeof window.speechSynthesis !== 'undefined'
+    ) {
+      try {
+        window.speechSynthesis.cancel();
+      } catch {
+        // Ignore.
+      }
+      this.#activeUtterance = undefined;
+    }
+    // Cancel cloud audio
+    if (this.#activeAudioSource) {
+      try {
+        this.#activeAudioSource.stop();
+      } catch {
+        // Ignore.
+      }
+      this.#activeAudioSource = undefined;
+    }
+  }
+
+  onDblClick(event: MouseEvent) {
+    if (!this.#config.autoSpeak) {
+      return;
+    }
+    // Don't interfere with editable / interactive elements (e.g.
+    // contenteditable editors, form fields).
+    const target = event.target;
+    if (
+      target instanceof Node &&
+      (isEditableNode(target) || isInteractiveElement(target))
+    ) {
+      return;
+    }
+    const selection = window.getSelection()?.toString().trim();
+    // Only speak when the selection contains Japanese — otherwise the ja voice
+    // mangles English/other-language selections.
+    if (selection && japaneseChar.test(selection)) {
+      this.speakText(selection);
+    }
   }
 
   hidePopup() {
@@ -2586,6 +2999,12 @@ export class ContentHandler {
     this.#currentLookupParams = undefined;
     this.#currentSearchResult = undefined;
     this.#currentTargetProps = undefined;
+    this.#lastSpokenReading = undefined;
+    this.#lastSpokenSentence = undefined;
+
+    // Cancel any in-flight speech (word, sentence, or cloud TTS) so that
+    // moving the mouse away immediately silences the extension.
+    this.cancelAllSpeech();
 
     hidePopup();
 

@@ -225,6 +225,26 @@ describe('Config', () => {
     expect(config.showRomaji).toEqual(false);
     expect(config.tabDisplay).toEqual('top');
     expect(config.toolbarIcon).toEqual('default');
+    expect(config.autoSpeak).toEqual(true);
+    expect(config.autoSpeakSource).toEqual('matched');
+    expect(config.autoSpeakWordEngine).toEqual('browser');
+    expect(config.autoSpeakSentenceEngine).toEqual('browser');
+    expect(config.autoSpeakModKeys).toEqual(['Shift']);
+  });
+
+  it('distinguishes empty autoSpeakModKeys from the default', () => {
+    const config = new Config();
+
+    // Default is ['Shift'].
+    expect(config.autoSpeakModKeys).toEqual(['Shift']);
+
+    // Setting [] should persist as the empty string and decode back to [],
+    // not fall through to the default.
+    config.autoSpeakModKeys = [];
+    expect(config.autoSpeakModKeys).toEqual([]);
+
+    config.autoSpeakModKeys = ['Alt', 'Ctrl'];
+    expect(config.autoSpeakModKeys).toEqual(['Alt', 'Ctrl']);
   });
 
   it('reports changes to all listeners', async () => {

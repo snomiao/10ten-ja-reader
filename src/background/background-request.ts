@@ -52,6 +52,7 @@ export const BackgroundRequestSchema = discriminator('type', {
   }),
   toggleDefinition: s.type({}),
   translate: s.type({ input: s.string() }),
+  cloudTts: s.type({ text: s.string(), engine: s.string() }),
 
   //
   // Requests to be forwarded to different frames
