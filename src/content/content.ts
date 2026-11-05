@@ -2858,9 +2858,7 @@ export class ContentHandler {
       return;
     }
     try {
-      if (this.#activeUtterance) {
-        window.speechSynthesis.cancel();
-      }
+      this.cancelAllSpeech();
       const utterance = new SpeechSynthesisUtterance(text);
       utterance.lang = 'ja-JP';
       const jaVoice = window.speechSynthesis
@@ -2875,8 +2873,12 @@ export class ContentHandler {
         }
       };
       utterance.addEventListener('end', () => {
-        clearActive();
-        onEnd?.();
+        // Some browsers fire 'end' for cancelled utterances too. Only continue
+        // to the next utterance if we finished speaking this one.
+        if (this.#activeUtterance === utterance) {
+          clearActive();
+          onEnd?.();
+        }
       });
       utterance.addEventListener('error', clearActive);
       this.#activeUtterance = utterance;
@@ -2890,24 +2892,33 @@ export class ContentHandler {
   #audioContext: AudioContext | undefined;
   #activeAudioSource: AudioBufferSourceNode | undefined;
 
+  // Incremented whenever speech is cancelled so that a cloud TTS request that
+  // is still in flight can tell it should no longer play.
+  #speechGeneration = 0;
+
   private async speakWithCloud(
     text: string,
     engine: string,
     onEnd?: () => void
   ) {
-    try {
-      // Cancel any in-flight browser or cloud audio.
-      this.cancelAllSpeech();
+    // Cancel any in-flight browser or cloud audio.
+    this.cancelAllSpeech();
+    const generation = this.#speechGeneration;
 
+    try {
       const response: Record<string, unknown> =
         await browser.runtime.sendMessage({ type: 'cloudTts', text, engine });
+
+      if (generation !== this.#speechGeneration) {
+        return;
+      }
 
       if (!response || response.error) {
         console.warn(
           '[10ten-ja-reader] Cloud TTS failed, falling back to browser:',
           response?.error
         );
-        this.speakWithBrowser(text);
+        this.speakWithBrowser(text, onEnd);
         return;
       }
 
@@ -2929,25 +2940,36 @@ export class ContentHandler {
       }
 
       const audioBuffer = await ctx.decodeAudioData(bytes.buffer.slice(0));
+      if (generation !== this.#speechGeneration) {
+        return;
+      }
+
       const source = ctx.createBufferSource();
       source.buffer = audioBuffer;
       source.connect(ctx.destination);
       source.onended = () => {
+        // stop() also fires 'ended'. Only continue to the next utterance if we
+        // finished playing this one.
         if (this.#activeAudioSource === source) {
           this.#activeAudioSource = undefined;
+          onEnd?.();
         }
-        onEnd?.();
       };
       this.#activeAudioSource = source;
       source.start();
     } catch (e) {
+      if (generation !== this.#speechGeneration) {
+        return;
+      }
       console.warn('[10ten-ja-reader] Cloud TTS playback error:', e);
       // Fall back to browser TTS.
-      this.speakWithBrowser(text);
+      this.speakWithBrowser(text, onEnd);
     }
   }
 
   private cancelAllSpeech() {
+    this.#speechGeneration++;
+
     // Cancel browser speech
     if (
       this.#activeUtterance &&
