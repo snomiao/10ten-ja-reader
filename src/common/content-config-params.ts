@@ -55,6 +55,32 @@ export interface ContentConfigParams {
   // Indicates the type of display to use for showing pitch accent information.
   accentDisplay: AccentDisplay;
 
+  // True if the popup's reading should be read aloud automatically when the
+  // popup is shown on hover.
+  autoSpeak: boolean;
+
+  // Which text to speak when auto-speak is enabled.
+  // 'matched': the text actually matched on the page (including any inflection)
+  // 'reading': the dictionary headword reading
+  autoSpeakSource: 'matched' | 'reading';
+
+  // Speech engines for word and sentence reading, configured separately so
+  // users can have instant local TTS for words + high-quality cloud TTS for
+  // sentences. Both default to 'browser'.
+  // Format: 'browser' or 'provider/model/voice'.
+  autoSpeakWordEngine: string;
+  autoSpeakSentenceEngine: string;
+
+  // What to read aloud on hover:
+  // 'word+sentence' (default): speak the word first, then the full sentence
+  // 'word': speak only the matched word
+  // 'sentence': speak only the surrounding sentence
+  autoSpeakScope: 'word+sentence' | 'word' | 'sentence';
+
+  // Modifier keys which must be held down for auto-speak to fire on hover.
+  // An empty array means no modifier is required.
+  autoSpeakModKeys: Array<'Alt' | 'Ctrl' | 'Shift'>;
+
   // Which sections should have their entries expanded automatically rather than
   // being collapsed to show only the top entries.
   autoExpand: Array<AutoExpandableEntry>;

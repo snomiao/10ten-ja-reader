@@ -57,6 +57,12 @@ type KanjiReferenceFlagsV2 = { [key in ReferenceAbbreviation]?: boolean };
 interface Settings {
   accentDisplay?: AccentDisplay;
   autoExpand?: Array<AutoExpandableEntry>;
+  autoSpeak?: boolean;
+  autoSpeakSource?: 'matched' | 'reading';
+  autoSpeakWordEngine?: string;
+  autoSpeakSentenceEngine?: string;
+  autoSpeakScope?: 'word+sentence' | 'word' | 'sentence';
+  autoSpeakModKeys?: string;
   bunproDisplay?: boolean;
   contextMenuEnable?: boolean;
   copyHeadwords?: 'common' | 'regular';
@@ -1174,6 +1180,120 @@ export class Config {
     this.readingOnly = !this.#settings.readingOnly;
   }
 
+  // autoSpeak: Defaults to true
+
+  get autoSpeak(): boolean {
+    return typeof this.#settings.autoSpeak === 'undefined'
+      ? true
+      : this.#settings.autoSpeak;
+  }
+
+  set autoSpeak(value: boolean) {
+    if (
+      typeof this.#settings.autoSpeak !== 'undefined' &&
+      this.#settings.autoSpeak === value
+    ) {
+      return;
+    }
+
+    this.#settings.autoSpeak = value;
+    void browser.storage.sync.set({ autoSpeak: value });
+  }
+
+  // autoSpeakSource: Defaults to 'matched'
+
+  get autoSpeakSource(): 'matched' | 'reading' {
+    return this.#settings.autoSpeakSource || 'matched';
+  }
+
+  set autoSpeakSource(value: 'matched' | 'reading') {
+    if (this.#settings.autoSpeakSource === value) {
+      return;
+    }
+    this.#settings.autoSpeakSource = value;
+    void browser.storage.sync.set({ autoSpeakSource: value });
+  }
+
+  // autoSpeakWordEngine / autoSpeakSentenceEngine: both default to 'browser'.
+
+  get autoSpeakWordEngine(): string {
+    return this.#settings.autoSpeakWordEngine || 'browser';
+  }
+
+  set autoSpeakWordEngine(value: string) {
+    if (this.#settings.autoSpeakWordEngine === value) {
+      return;
+    }
+    this.#settings.autoSpeakWordEngine = value;
+    void browser.storage.sync.set({ autoSpeakWordEngine: value });
+  }
+
+  get autoSpeakSentenceEngine(): string {
+    return this.#settings.autoSpeakSentenceEngine || 'browser';
+  }
+
+  set autoSpeakSentenceEngine(value: string) {
+    if (this.#settings.autoSpeakSentenceEngine === value) {
+      return;
+    }
+    this.#settings.autoSpeakSentenceEngine = value;
+    void browser.storage.sync.set({ autoSpeakSentenceEngine: value });
+  }
+
+  // autoSpeakApiKey: stored in LOCAL storage only (never synced — keys must
+  // not leave the device). Read/write is async because local storage is async.
+
+  async getAutoSpeakApiKey(): Promise<string> {
+    try {
+      const result = await browser.storage.local.get('autoSpeakApiKey');
+      return (result.autoSpeakApiKey as string) || '';
+    } catch {
+      return '';
+    }
+  }
+
+  async setAutoSpeakApiKey(value: string): Promise<void> {
+    await browser.storage.local.set({ autoSpeakApiKey: value });
+  }
+
+  // autoSpeakScope: Defaults to 'word+sentence'.
+
+  get autoSpeakScope(): 'word+sentence' | 'word' | 'sentence' {
+    return this.#settings.autoSpeakScope || 'word+sentence';
+  }
+
+  set autoSpeakScope(value: 'word+sentence' | 'word' | 'sentence') {
+    if (this.#settings.autoSpeakScope === value) {
+      return;
+    }
+    this.#settings.autoSpeakScope = value;
+    void browser.storage.sync.set({ autoSpeakScope: value });
+  }
+
+  // autoSpeakModKeys: Defaults to ['Shift']. The empty string is stored
+  // explicitly when the user wants no modifier required, so we distinguish
+  // 'undefined' (use default) from '' (user opted into no modifier).
+
+  get autoSpeakModKeys(): Array<'Alt' | 'Ctrl' | 'Shift'> {
+    const stored = this.#settings.autoSpeakModKeys;
+    if (typeof stored === 'undefined') {
+      return ['Shift'];
+    }
+    if (!stored) {
+      return [];
+    }
+    return stored.split('+') as Array<'Alt' | 'Ctrl' | 'Shift'>;
+  }
+
+  set autoSpeakModKeys(value: Array<'Alt' | 'Ctrl' | 'Shift'>) {
+    const stored = value.join('+');
+    if (this.#settings.autoSpeakModKeys === stored) {
+      return;
+    }
+    this.#settings.autoSpeakModKeys = stored;
+    void browser.storage.sync.set({ autoSpeakModKeys: stored });
+  }
+
   // showKanjiComponents: Defaults to true
 
   get showKanjiComponents(): boolean {
@@ -1393,6 +1513,12 @@ export class Config {
       preferredUnits: this.preferredUnits,
       puckState: this.puckState,
       readingOnly: this.readingOnly,
+      autoSpeak: this.autoSpeak,
+      autoSpeakSource: this.autoSpeakSource,
+      autoSpeakWordEngine: this.autoSpeakWordEngine,
+      autoSpeakSentenceEngine: this.autoSpeakSentenceEngine,
+      autoSpeakModKeys: this.autoSpeakModKeys,
+      autoSpeakScope: this.autoSpeakScope,
       showKanjiComponents: this.showKanjiComponents,
       showPriority: this.showPriority,
       showPuck: this.showPuck,
