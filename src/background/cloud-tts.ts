@@ -134,7 +134,9 @@ async function geminiTts(
   voice: string,
   apiKey: string
 ): Promise<CloudTtsResponse> {
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+  // Pass the key in a header, not the URL, since fetch URLs end up in Bugsnag
+  // breadcrumbs.
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
   const body = {
     contents: [{ parts: [{ text }], role: 'user' }],
     generationConfig: {
@@ -146,7 +148,7 @@ async function geminiTts(
   };
   const resp = await fetch(url, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
     body: JSON.stringify(body),
   });
   if (!resp.ok) {
